@@ -17,7 +17,6 @@ static bool tcpConnected = false;
 static String trimLine(const char* s) { String t = s; t.trim(); return t; }
 static bool lineHas(const char* line, const char* token) { return (strstr(line, token) != nullptr); }
 
-// 现在是全局可见函数
 void scheduleStatePoll() { nextStatePollMs = millis() + STATE_POLL_MS; }
 void comm_resetBackoff() { backoffMs = 2000; }
 
@@ -158,7 +157,8 @@ static void sendHeartbeatIfNeeded(uint32_t now) {
     }
 }
 
-// 串口行分发（注册到 uart_utils）
+// 行分发（注册到 uart_utils，主要用于AT命令应答和事件）
+// 二进制协议包已在 readDTU 里处理
 static void handleLine(const char* rawLine) {
     Serial2.print("[UART0 RX LINE] ");
     Serial2.println(rawLine);

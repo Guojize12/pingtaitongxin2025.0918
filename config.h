@@ -13,7 +13,7 @@
 #define PLATFORM_VER        0x5b
 #define PLATFORM_DMODEL     0x1d
 #define CMD_HEARTBEAT_REQ   0x0000
-
+#define CMD_TIME_SYNC_REQ   0x0001   // <--- 就加这一行！
 
 static char g_device_sn[13] = "000000065530";
 

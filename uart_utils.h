@@ -10,3 +10,6 @@ void sendCmd(const char* cmd);
 
 void readDTU();
 void setLineHandler(void (*handler)(const char*));
+
+// 时间包解析成功标志（外部可读）
+extern volatile bool g_platformTimeParsed;
