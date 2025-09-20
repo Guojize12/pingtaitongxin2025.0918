@@ -196,3 +196,55 @@ void sendStartupStatusReport
 
     sendPlatformPacket('R', 0x0002, 0, payload, sizeof(payload));
 }
+
+// SIM卡信息上报 (CMD=0x0007)
+void sendSimInfoUpload(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    const char* iccid,
+    const char* imsi,
+    uint8_t signalStrength
+) {
+    // 计算payload长度：时间(7) + ICCID长度(1) + ICCID内容 + IMSI长度(1) + IMSI内容 + 信号强度(1)
+    uint8_t iccidLen = iccid ? strlen(iccid) : 0;
+    uint8_t imsiLen = imsi ? strlen(imsi) : 0;
+    uint32_t payloadLen = 7 + 1 + iccidLen + 1 + imsiLen + 1;
+    
+    uint8_t* payload = (uint8_t*)malloc(payloadLen);
+    if (!payload) return;
+    
+    // 填充时间信息（7字节）
+    payload[0] = (uint8_t)(year >> 8);
+    payload[1] = (uint8_t)(year & 0xFF);
+    payload[2] = month;
+    payload[3] = day;
+    payload[4] = hour;
+    payload[5] = minute;
+    payload[6] = second;
+    
+    uint32_t offset = 7;
+    
+    // 填充ICCID长度和内容
+    payload[offset++] = iccidLen;
+    if (iccidLen > 0 && iccid) {
+        memcpy(payload + offset, iccid, iccidLen);
+        offset += iccidLen;
+    }
+    
+    // 填充IMSI长度和内容
+    payload[offset++] = imsiLen;
+    if (imsiLen > 0 && imsi) {
+        memcpy(payload + offset, imsi, imsiLen);
+        offset += imsiLen;
+    }
+    
+    // 填充信号强度
+    payload[offset++] = signalStrength;
+    
+    sendPlatformPacket('R', 0x0007, 0, payload, (uint16_t)payloadLen);
+    free(payload);
+}

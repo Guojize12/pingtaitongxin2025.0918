@@ -3,6 +3,7 @@
 #include "platform_packet.h"
 #include "comm_manager.h"
 #include "rtc_soft.h"
+#include "sim_info.h"
 #include <Arduino.h>
 
 // 定时上传的计时器
@@ -16,6 +17,9 @@ static bool g_startupReported = false;
 
 // ============ 新增：只模拟一次事件上传 ============
 static bool g_testEventUploaded = false;
+
+// ============ 新增：只上报一次SIM卡信息 ============
+static bool g_simInfoReported = false;
 
 // 开机自动上报（只上报一次，校时+联网后）
 static void uploadStartupStatusIfNeeded() {
@@ -97,9 +101,33 @@ static void uploadMonitorEventIfNeeded() {
     g_monitorEventUploadFlag = 0; // 上传一次后清零
 }
 
+// SIM卡信息自动上报（只上报一次，校时+联网后）
+static void uploadSimInfoIfNeeded() {
+    if (g_simInfoReported) return;
+    if (!comm_isConnected()) return;
+    if (!rtc_is_valid()) return;
+
+    PlatformTime t;
+    rtc_now_fields(&t);
+
+    // 采集SIM卡信息
+    SimInfo simInfo;
+    if (collectSimInfo(&simInfo) && simInfo.valid) {
+        // CMD=0x0007 SIM卡信息上报
+        sendSimInfoUpload(
+            t.year, t.month, t.day, t.hour, t.minute, t.second,
+            simInfo.iccid,
+            simInfo.imsi,
+            simInfo.signalStrength
+        );
+        g_simInfoReported = true;
+    }
+}
+
 void upload_drive() {
     uint32_t now = millis();
     uploadStartupStatusIfNeeded();     // 开机状态上报
+    uploadSimInfoIfNeeded();           // SIM卡信息上报
     uploadRealtimeDataIfNeeded(now);
     uploadMonitorEventIfNeeded();
 }
