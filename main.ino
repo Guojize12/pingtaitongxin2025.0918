@@ -4,11 +4,9 @@
 #include "state_machine.h"
 #include "platform_packet.h"
 #include "at_commands.h"
-#include "rtc_soft.h"    // RTC头文件, 确保已包含
+#include "rtc_soft.h"
 
 volatile int g_monitorEventUploadFlag = 0;
-
-// <--- 这里加上全局变量
 unsigned long lastRtcPrint = 0;
 
 void setup() {
@@ -20,7 +18,7 @@ void setup() {
   log2Str("Server: ", SERVER_IP);
   log2Val("Port: ", SERVER_PORT);
 
-  rtc_init();         // RTC初始化
+  rtc_init();
   resetBackoff();
   gotoStep(STEP_IDLE);
 }
@@ -29,7 +27,7 @@ void loop()
 {
   readDTU();
   driveStateMachine();
-/*
+
   // 每5秒打印一次当前RTC时间，验证RTC是否好用
   if (millis() - lastRtcPrint > 5000) {
     lastRtcPrint = millis();
@@ -48,5 +46,4 @@ void loop()
       Serial2.println("[RTC] Not valid yet.");
     }
   }
-*/
 }
