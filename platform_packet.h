@@ -73,3 +73,16 @@ void sendStartupStatusReport(
 #define STATUS_GET_UPGRADE_DATA_TIMEOUT 107
 #define STATUS_UPGRADE_FILE_TOO_BIG 108
 #define STATUS_UPGRADE_SUCCESS_BUT_FAIL_MANY_TIMES 109
+
+void sendSimInfoUpload(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    const char* iccid, uint8_t iccid_len,
+    const char* imsi,  uint8_t imsi_len,
+    uint8_t signal
+);
+

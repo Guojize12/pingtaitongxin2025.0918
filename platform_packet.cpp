@@ -196,3 +196,34 @@ void sendStartupStatusReport
 
     sendPlatformPacket('R', 0x0002, 0, payload, sizeof(payload));
 }
+
+void sendSimInfoUpload(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    const char* iccid, uint8_t iccid_len,
+    const char* imsi,  uint8_t imsi_len,
+    uint8_t signal
+) {
+    if (iccid_len > 20) iccid_len = 20;
+    if (imsi_len > 15) imsi_len = 15;
+
+    uint8_t payload[7 + 1 + 20 + 1 + 15 + 1]; // 足够大
+    payload[0] = (uint8_t)(year >> 8);
+    payload[1] = (uint8_t)(year & 0xFF);
+    payload[2] = month;
+    payload[3] = day;
+    payload[4] = hour;
+    payload[5] = minute;
+    payload[6] = second;
+    payload[7] = iccid_len;
+    memcpy(payload + 8, iccid, iccid_len);
+    payload[8 + iccid_len] = imsi_len;
+    memcpy(payload + 8 + iccid_len + 1, imsi, imsi_len);
+    payload[8 + iccid_len + 1 + imsi_len] = signal;
+    uint16_t paylen = 8 + iccid_len + 1 + imsi_len + 1;
+    sendPlatformPacket('R', 0x0007, 0, payload, paylen);
+}
