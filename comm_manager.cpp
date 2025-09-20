@@ -28,7 +28,6 @@ static void growBackoff() {
     uint32_t n = backoffMs * 2;
     if (n > BACKOFF_MAX_MS) n = BACKOFF_MAX_MS;
     backoffMs = n;
-    log2Val("Backoff ms: ", backoffMs);
 }
 
 void comm_gotoStep(Step s) {
@@ -45,14 +44,12 @@ static void handleStepIdle() {
 
 static void handleStepWaitReady(const String& line) {
     if (lineHas(line.c_str(), "+MATREADY")) {
-        log2("Module ready");
         startATPing();
     }
 }
 
 static void handleStepAtPing(const String& line) {
     if (lineHas(line.c_str(), "OK")) {
-        log2("AT OK");
         comm_resetBackoff();
         queryCEREG();
     }
@@ -63,9 +60,7 @@ static void handleStepCereg(const String& line) {
         int stat = -1;
         const char* p = strchr(line.c_str(), ',');
         if (p) { stat = atoi(++p); }
-        log2Val("CEREG stat: ", stat);
         if (stat == 1 || stat == 5) {
-            log2("Network registered");
             setEncoding();
         }
     }
@@ -94,15 +89,12 @@ static void handleStepMipopen(const String& line) {
             p = strchr(p, ',');
             if (p) { code = atoi(++p); }
         }
-        Serial2.print("MIPOPEN ch="); Serial2.print(ch);
-        Serial2.print(" code="); Serial2.println(code);
 
         if (code == 0) {
             log2("TCP connected");
             tcpConnected = true;
             comm_resetBackoff();
             lastHeartbeatMs = millis();
-            // 新增：首次连接时也发一次时间同步请求
             lastTimeSyncReqMs = millis() - TIME_SYNC_INTERVAL_MS; // 立即触发
             comm_gotoStep(STEP_MONITOR);
             scheduleStatePoll();
@@ -125,10 +117,9 @@ static void handleStepMipopen(const String& line) {
 static void handleStepMonitor(const String& line) {
     if (lineHas(line.c_str(), "+MIPSTATE")) {
         if (strstr(line.c_str(), "CONNECTED")) {
-            if (!tcpConnected) log2("State says CONNECTED");
             tcpConnected = true;
         } else {
-            log2("State not CONNECTED");
+            log2("TCP disconnected");
             tcpConnected = false;
             growBackoff();
             delay(backoffMs);
@@ -139,16 +130,8 @@ static void handleStepMonitor(const String& line) {
 
 static void handleDisconnEvent(const String& line) {
     if (lineHas(line.c_str(), "+MIPURC") && lineHas(line.c_str(), "\"disconn\"")) {
-        int chl = -1, err = -1;
-        const char* p = strstr(line.c_str(), "\"disconn\"");
-        if (p) {
-            p = strchr(p, ','); if (p) { chl = atoi(++p); }
-            p = strchr(p, ','); if (p) { err = atoi(++p); }
-        }
-        Serial2.print("TCP disconnected. ch="); Serial2.print(chl);
-        Serial2.print(" err="); Serial2.println(err);
-
         tcpConnected = false;
+        log2("TCP disconnected");
         growBackoff();
         delay(backoffMs);
         openTCP();
@@ -172,11 +155,7 @@ static void sendTimeSyncIfNeeded(uint32_t now) {
 }
 
 // 行分发（注册到 uart_utils，主要用于AT命令应答和事件）
-// 二进制协议包已在 readDTU 里处理
 static void handleLine(const char* rawLine) {
-    Serial2.print("[UART0 RX LINE] ");
-    Serial2.println(rawLine);
-
     String line = trimLine(rawLine);
     if (line.length() == 0) return;
 
@@ -206,7 +185,6 @@ void comm_drive() {
 
         case STEP_AT_PING:
             if (now - actionStartMs > AT_TIMEOUT_MS) {
-                log2("AT timeout, retry");
                 growBackoff();
                 delay(backoffMs);
                 startATPing();
@@ -215,7 +193,6 @@ void comm_drive() {
 
         case STEP_CEREG:
             if (now - actionStartMs > REG_TIMEOUT_MS) {
-                log2("CEREG timeout, retry");
                 growBackoff();
                 delay(backoffMs);
                 queryCEREG();
@@ -224,21 +201,18 @@ void comm_drive() {
 
         case STEP_ENCODING:
             if (now - actionStartMs > AT_TIMEOUT_MS) {
-                log2("Encoding timeout, continue");
                 closeCh0();
             }
             break;
 
         case STEP_MIPCLOSE:
             if (now - actionStartMs > AT_TIMEOUT_MS) {
-                log2("MIPCLOSE timeout, continue");
                 openTCP();
             }
             break;
 
         case STEP_MIPOPEN:
             if (now - actionStartMs > OPEN_TIMEOUT_MS) {
-                log2("MIPOPEN timeout, retry");
                 tcpConnected = false;
                 growBackoff();
                 delay(backoffMs);
@@ -248,7 +222,6 @@ void comm_drive() {
 
         case STEP_MONITOR: {
             if (now > nextStatePollMs) {
-                log2("Poll state");
                 pollMIPSTATE();
                 scheduleStatePoll();
             }

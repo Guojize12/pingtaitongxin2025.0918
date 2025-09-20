@@ -15,7 +15,6 @@ size_t build_platform_packet(uint8_t* out,
                              const uint8_t* payload,
                              uint16_t payloadLen)
 {
-    // 1. 填头部
     out[0]  = '$';
     out[1]  = (uint8_t)opType;
     out[2]  = (uint8_t)(payloadLen >> 8);
@@ -27,14 +26,12 @@ size_t build_platform_packet(uint8_t* out,
     out[19] = PLATFORM_DMODEL;
     out[20] = pid;
 
-    // 2. 头CRC (Modbus方式计算 over 前21字节，但输出高字节在前)
     uint16_t headCrc = crc16_modbus(out, PLATFORM_HEADER_LEN);
     out[PLATFORM_HEADER_LEN]     = (uint8_t)(headCrc >> 8);
     out[PLATFORM_HEADER_LEN + 1] = (uint8_t)(headCrc & 0xFF);
 
     size_t offset = PLATFORM_HEADER_LEN + 2;
 
-    // 3. payload 和 payloadCRC
     if (payloadLen > 0 && payload) {
         memcpy(out + offset, payload, payloadLen);
         offset += payloadLen;
@@ -43,7 +40,6 @@ size_t build_platform_packet(uint8_t* out,
         out[offset + 1] = (uint8_t)(dataCrc & 0xFF);
         offset += 2;
     }
-    // 如果 payloadLen == 0，没有数据CRC，包到此结束
     return offset;
 }
 
@@ -72,7 +68,7 @@ void sendPlatformPacket(char opType,
     buf[pos++] = '\n';
     buf[pos] = '\0';
 
-    // 输出日志
+    // 只保留关键日志
     Serial2.print("[UART0 TX PlatformPkt HEX] ");
     for (size_t i = 0; i < n; ++i) {
         if (pkt[i] < 16) Serial2.print("0");
@@ -82,10 +78,6 @@ void sendPlatformPacket(char opType,
     Serial2.println();
     Serial2.print("Send PlatformPkt len=");
     Serial2.println((int)n);
-
-    Serial2.print("[UART0 TX CMD] ");
-    Serial2.print(buf);
-    Serial2.print("\n");
 
     Serial.write((const uint8_t*)buf, pos);
 }
@@ -120,7 +112,6 @@ void sendRealtimeMonitorData(
     sendPlatformPacket('R', 0x1d00, 0, payload, sizeof(payload));
 }
 
-// 事件上传
 void sendMonitorEventUpload(
     uint8_t year,
     uint8_t month,
