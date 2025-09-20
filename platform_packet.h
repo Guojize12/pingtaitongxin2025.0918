@@ -44,3 +44,5 @@ void sendMonitorEventUpload(
     const uint8_t* imageData,
     uint32_t imageLen
 );
+
+void sendTimeSyncRequest();

@@ -370,12 +370,14 @@ void readDTU() {
   static uint8_t packetBuf[256];
   static size_t packetLen = 0;
   
-  while (Serial.available()) {
+  while (Serial.available()) 
+  {
     uint8_t c = Serial.read();
+    /*
     Serial2.print("[DEBUG] Got byte: "); Serial2.print((int)c); Serial2.print(" '"); 
     if (c >= 32 && c <= 126) Serial2.print((char)c); else Serial2.print("?"); 
     Serial2.println("'");
-
+    */
     // Binary mode (处理二进制数据包)
     if (binMode) {
       if (binHave < binExpected) {
@@ -459,4 +461,5 @@ void readDTU() {
       }
     }
   }
+
 }

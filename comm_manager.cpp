@@ -13,6 +13,10 @@ static uint32_t backoffMs = 2000;
 static uint32_t lastHeartbeatMs = 0;
 static bool tcpConnected = false;
 
+// === 新增：定时请求时间同步相关变量 ===
+static uint32_t lastTimeSyncReqMs = 0;
+static const uint32_t TIME_SYNC_INTERVAL_MS = 10000; // 10秒
+
 // ================== 工具函数 ==================
 static String trimLine(const char* s) { String t = s; t.trim(); return t; }
 static bool lineHas(const char* line, const char* token) { return (strstr(line, token) != nullptr); }
@@ -98,6 +102,8 @@ static void handleStepMipopen(const String& line) {
             tcpConnected = true;
             comm_resetBackoff();
             lastHeartbeatMs = millis();
+            // 新增：首次连接时也发一次时间同步请求
+            lastTimeSyncReqMs = millis() - TIME_SYNC_INTERVAL_MS; // 立即触发
             comm_gotoStep(STEP_MONITOR);
             scheduleStatePoll();
         } else {
@@ -157,6 +163,14 @@ static void sendHeartbeatIfNeeded(uint32_t now) {
     }
 }
 
+// 新增：定时发送时间同步请求
+static void sendTimeSyncIfNeeded(uint32_t now) {
+    if (tcpConnected && (now - lastTimeSyncReqMs >= TIME_SYNC_INTERVAL_MS)) {
+        sendTimeSyncRequest();
+        lastTimeSyncReqMs = now;
+    }
+}
+
 // 行分发（注册到 uart_utils，主要用于AT命令应答和事件）
 // 二进制协议包已在 readDTU 里处理
 static void handleLine(const char* rawLine) {
@@ -181,7 +195,7 @@ static void handleLine(const char* rawLine) {
     }
 }
 
-// 主循环：仅负责通信维持（AT/TCP/心跳/状态轮询）
+// 主循环：仅负责通信维持（AT/TCP/心跳/状态轮询/时间同步）
 void comm_drive() {
     uint32_t now = millis();
 
@@ -239,6 +253,7 @@ void comm_drive() {
                 scheduleStatePoll();
             }
             sendHeartbeatIfNeeded(now);
+            sendTimeSyncIfNeeded(now); // 新增：定时请求时间同步
             break;
         }
         default:

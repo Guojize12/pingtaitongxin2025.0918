@@ -158,3 +158,8 @@ void sendMonitorEventUpload(
     sendPlatformPacket('R', 0x1d09, 0, payload, (uint16_t)totalLen);
     free(payload);
 }
+
+void sendTimeSyncRequest() 
+{
+    sendPlatformPacket('R', CMD_TIME_SYNC_REQ, 0, nullptr, 0);
+}
