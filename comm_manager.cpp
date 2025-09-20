@@ -13,9 +13,8 @@ static uint32_t backoffMs = 2000;
 static uint32_t lastHeartbeatMs = 0;
 static bool tcpConnected = false;
 
-// === 新增：定时请求时间同步相关变量 ===
+// === 定时请求时间同步相关变量 ===
 static uint32_t lastTimeSyncReqMs = 0;
-static const uint32_t TIME_SYNC_INTERVAL_MS = 10000; // 10秒
 
 // ================== 工具函数 ==================
 static String trimLine(const char* s) { String t = s; t.trim(); return t; }
@@ -146,7 +145,7 @@ static void sendHeartbeatIfNeeded(uint32_t now) {
     }
 }
 
-// 新增：定时发送时间同步请求
+// 定时发送时间同步请求
 static void sendTimeSyncIfNeeded(uint32_t now) {
     if (tcpConnected && (now - lastTimeSyncReqMs >= TIME_SYNC_INTERVAL_MS)) {
         sendTimeSyncRequest();
@@ -226,7 +225,7 @@ void comm_drive() {
                 scheduleStatePoll();
             }
             sendHeartbeatIfNeeded(now);
-            sendTimeSyncIfNeeded(now); // 新增：定时请求时间同步
+            sendTimeSyncIfNeeded(now); // 定时请求时间同步
             break;
         }
         default:

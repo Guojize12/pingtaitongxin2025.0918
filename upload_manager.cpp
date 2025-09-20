@@ -2,6 +2,7 @@
 #include "config.h"
 #include "platform_packet.h"
 #include "comm_manager.h"
+#include "rtc_soft.h"
 #include <Arduino.h>
 
 // 定时上传的计时器
@@ -12,14 +13,17 @@ extern volatile int g_monitorEventUploadFlag;
 
 static void uploadRealtimeDataIfNeeded(uint32_t now) {
     if (!comm_isConnected()) return;
+    if (!rtc_is_valid()) return; // 新增：未校时不发
     if (now - lastRealtimeUploadMs < REALTIME_UPLOAD_INTERVAL_MS) return;
 
-    // 将这里替换为你的真实采集数据
+    PlatformTime t;
+    rtc_now_fields(&t);
+
     sendRealtimeMonitorData(
-        25, 9, 16, 13, 5, 45,   // year, month, day, hour, min, sec
-        0,                      // dataFmt
-        nullptr,                // exceptionStatus
-        0                       // waterStatus
+        t.year % 100, t.month, t.day, t.hour, t.minute, t.second, // 用RTC时间
+        0,
+        nullptr,
+        0
     );
 
     lastRealtimeUploadMs = now;
@@ -27,10 +31,12 @@ static void uploadRealtimeDataIfNeeded(uint32_t now) {
 
 static void uploadMonitorEventIfNeeded() {
     if (!comm_isConnected()) return;
+    if (!rtc_is_valid()) return; // 新增：未校时不发
     if (g_monitorEventUploadFlag != 1) return;
 
-    // 将这里替换为你的真实事件数据
-    uint8_t year = 25, month = 9, day = 16, hour = 13, minute = 5, second = 45;
+    PlatformTime t;
+    rtc_now_fields(&t);
+
     uint8_t triggerCond = 1;
     float realtimeValue = 12.34f;
     float thresholdValue = 10.00f;
@@ -38,11 +44,11 @@ static void uploadMonitorEventIfNeeded() {
     uint32_t imageLen = 0;
 
     sendMonitorEventUpload(
-        year, month, day, hour, minute, second, triggerCond,
+        t.year % 100, t.month, t.day, t.hour, t.minute, t.second, triggerCond,
         realtimeValue, thresholdValue, imageData, imageLen
     );
 
-    g_monitorEventUploadFlag = 0; // 上传一次后清零，防止重复
+    g_monitorEventUploadFlag = 0; // 上传一次后清零
 }
 
 void upload_drive() {

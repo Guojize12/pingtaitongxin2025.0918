@@ -1,5 +1,6 @@
 #include "uart_utils.h"
 #include "config.h"
+#include "rtc_soft.h"    // 新增
 
 // Line buffer
 static char lineBuf[LINE_BUF_MAX];
@@ -113,6 +114,7 @@ void readDTU() {
             if (parsePlatformTime(packetBuf, packetLen, &parsedTime)) {
               g_platformTime = parsedTime;
               g_platformTimeParsed = true;
+              rtc_on_sync(&parsedTime, millis()); // 新增：收到即校RTC
             }
           }
         }

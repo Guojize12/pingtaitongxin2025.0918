@@ -63,4 +63,15 @@ void rtc_on_sync(const PlatformTime* plat, uint32_t recv_millis) {
     s_base_epoch = platformTimeToEpoch(plat);
     s_base_millis = recv_millis;
     s_valid = true;
+
+    Serial2.print("[RTC] Sync OK: ");
+    Serial2.print(plat->year); Serial2.print("-");
+    Serial2.print((int)plat->month); Serial2.print("-");
+    Serial2.print((int)plat->day); Serial2.print(" ");
+    Serial2.print((int)plat->hour); Serial2.print(":");
+    Serial2.print((int)plat->minute); Serial2.print(":");
+    Serial2.print((int)plat->second);
+    Serial2.print(" (millis=");
+    Serial2.print(recv_millis);
+    Serial2.println(")");
 }

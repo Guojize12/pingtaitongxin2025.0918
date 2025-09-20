@@ -13,7 +13,7 @@
 #define PLATFORM_VER        0x5b
 #define PLATFORM_DMODEL     0x1d
 #define CMD_HEARTBEAT_REQ   0x0000
-#define CMD_TIME_SYNC_REQ   0x0001   // <--- 就加这一行！
+#define CMD_TIME_SYNC_REQ   0x0001
 
 static char g_device_sn[13] = "000000065530";
 
@@ -25,6 +25,9 @@ static const uint32_t STATE_POLL_MS        = 10000;
 static const uint32_t HEARTBEAT_INTERVAL_MS = 10000;
 static const uint32_t BACKOFF_MAX_MS = 30000;
 static const uint32_t REALTIME_UPLOAD_INTERVAL_MS = 30000;
+
+// RTC校时周期（10分钟）
+static const uint32_t TIME_SYNC_INTERVAL_MS = 600000; // 10min
 
 static const size_t LINE_BUF_MAX = 512;
 
