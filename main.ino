@@ -28,22 +28,9 @@ void loop()
   readDTU();
   driveStateMachine();
 
-  // 每5秒打印一次当前RTC时间，验证RTC是否好用
-  if (millis() - lastRtcPrint > 5000) {
+  // 只在未校时时每10秒提示一次
+  if (!rtc_is_valid() && millis() - lastRtcPrint > 10000) {
     lastRtcPrint = millis();
-    if (rtc_is_valid()) {
-      PlatformTime t;
-      rtc_now_fields(&t);
-      Serial2.print("[RTC] Now: ");
-      Serial2.print(t.year); Serial2.print("-");
-      Serial2.print((int)t.month); Serial2.print("-");
-      Serial2.print((int)t.day); Serial2.print(" ");
-      Serial2.print((int)t.hour); Serial2.print(":");
-      Serial2.print((int)t.minute); Serial2.print(":");
-      Serial2.print((int)t.second);
-      Serial2.println();
-    } else {
-      Serial2.println("[RTC] Not valid yet.");
-    }
+    Serial2.println("[RTC] Not valid yet.");
   }
 }
