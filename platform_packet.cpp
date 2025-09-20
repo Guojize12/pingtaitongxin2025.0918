@@ -98,7 +98,7 @@ void sendRealtimeMonitorData(
     const uint8_t* exceptionStatus,
     uint8_t waterStatus
 ) {
-    uint8_t payload[15];
+    uint8_t payload[14] = {0};
     payload[0] = (uint8_t)(year >> 8);     // 高字节
     payload[1] = (uint8_t)(year & 0xFF);   // 低字节
     payload[2] = month;
@@ -107,10 +107,9 @@ void sendRealtimeMonitorData(
     payload[5] = minute;
     payload[6] = second;
     payload[7] = dataFmt;
-    for (int i = 0; i < 6; ++i) {
-        payload[8 + i] = exceptionStatus ? exceptionStatus[i] : 0;
-    }
-    payload[14] = waterStatus;
+    payload[8] = exceptionStatus ? exceptionStatus[0] : 0; // 只用1字节
+    // payload[9-12] 默认0
+    payload[13] = waterStatus;
     sendPlatformPacket('R', 0x1d00, 0, payload, sizeof(payload));
 }
 
