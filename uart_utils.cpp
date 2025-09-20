@@ -26,7 +26,7 @@ void sendCmd(const char* cmd) {
 
 void setLineHandler(void (*handler)(const char*)) { lineHandler = handler; }
 
-// HEX和ASCII打印
+// 只打印HEX不分行
 static void dumpHex(const uint8_t* d, int n) 
 {
   Serial2.print("[HEX DUMP] ");
@@ -38,24 +38,18 @@ static void dumpHex(const uint8_t* d, int n)
   Serial2.println();
 }
 
-// 只保留时间解析与打印
+// 解析平台时间包（仅CMD=0x0001时）
 bool parsePlatformTime(const uint8_t* data, size_t len, PlatformTime* time) {
-  if (len < 32) {
-    return false;
-  }
-  if (data[0] != '$') {
-    return false;
-  }
+  if (len < 32) return false;
+  if (data[0] != '$') return false;
   uint16_t cmd = (data[17] << 8) | data[18];
-  if (cmd != 0x0001) {
-    return false;
-  }
-  time->year = (data[24] << 8) | data[25];
-  time->month = data[26];
-  time->day = data[27];
-  time->hour = data[28];
-  time->minute = data[29];
-  time->second = data[30];
+  if (cmd != 0x0001) return false;
+  time->year = (data[23] << 8) | data[24];
+  time->month = data[25];
+  time->day = data[26];
+  time->hour = data[27];
+  time->minute = data[28];
+  time->second = data[29];
   if (time->year < 2000 || time->year > 2100 ||
       time->month < 1 || time->month > 12 ||
       time->day < 1 || time->day > 31 ||
@@ -84,7 +78,7 @@ bool parsePlatformTime(const uint8_t* data, size_t len, PlatformTime* time) {
   return true;
 }
 
-// 按协议头动态接收完整包
+// 按协议头动态接收完整包，并只在CMD=0x0001时解析时间
 void readDTU() {
   static uint8_t packetBuf[256];
   static size_t packetLen = 0;
@@ -111,10 +105,16 @@ void readDTU() {
       // 收齐一包再处理
       if (expectedPacketLen > 0 && packetLen >= expectedPacketLen) {
         dumpHex(packetBuf, packetLen);
-        PlatformTime parsedTime;
-        if (parsePlatformTime(packetBuf, packetLen, &parsedTime)) {
-          g_platformTime = parsedTime;
-          g_platformTimeParsed = true;
+        // 只在CMD=0x0001时解析时间
+        if (packetLen >= 32) {
+          uint16_t cmd = (packetBuf[17] << 8) | packetBuf[18];
+          if (cmd == 0x0001) {
+            PlatformTime parsedTime;
+            if (parsePlatformTime(packetBuf, packetLen, &parsedTime)) {
+              g_platformTime = parsedTime;
+              g_platformTimeParsed = true;
+            }
+          }
         }
         packetLen = 0;
         expectedPacketLen = 0;
