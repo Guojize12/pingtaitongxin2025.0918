@@ -2,44 +2,74 @@
 #include "uart_utils.h"
 #include <string.h>
 
+// 全局变量用于AT命令响应处理
+static char g_atResponse[64];
+static bool g_atResponseReady = false;
+static bool g_atCommandError = false;
+
+// AT命令响应处理器
+static void atResponseHandler(const char* line) {
+    if (!line) return;
+    
+    // 跳过空行
+    if (strlen(line) == 0) return;
+    
+    // 检查错误响应
+    if (strstr(line, "ERROR") != NULL) {
+        g_atCommandError = true;
+        g_atResponseReady = true;
+        return;
+    }
+    
+    // 检查成功响应
+    if (strstr(line, "OK") != NULL) {
+        g_atResponseReady = true;
+        return;
+    }
+    
+    // 如果不是OK/ERROR，则可能是数据响应
+    if (strlen(line) > 2 && !g_atResponseReady) {
+        strncpy(g_atResponse, line, sizeof(g_atResponse) - 1);
+        g_atResponse[sizeof(g_atResponse) - 1] = '\0';
+        // 不立即设置ready，等待OK
+    }
+}
+
 // 同步发送AT命令并等待响应
 static bool sendATCommandSync(const char* cmd, char* response, size_t responseSize, uint32_t timeoutMs) {
     // 清空响应缓冲区
     memset(response, 0, responseSize);
+    memset(g_atResponse, 0, sizeof(g_atResponse));
+    g_atResponseReady = false;
+    g_atCommandError = false;
+    
+    // 设置响应处理器
+    setLineHandler(atResponseHandler);
     
     // 发送命令
     sendCmd(cmd);
     
     // 等待响应
     uint32_t startTime = millis();
-    size_t responseLen = 0;
-    bool foundResponse = false;
-    
-    while (millis() - startTime < timeoutMs && !foundResponse) {
-        if (Serial.available()) {
-            char c = Serial.read();
-            if (c == '\r' || c == '\n') {
-                if (responseLen > 0) {
-                    response[responseLen] = '\0';
-                    // 检查是否为有效响应（不是OK或ERROR）
-                    if (strstr(response, "OK") == NULL && strstr(response, "ERROR") == NULL && responseLen > 2) {
-                        foundResponse = true;
-                    } else if (strstr(response, "ERROR") != NULL) {
-                        return false; // 命令执行错误
-                    } else {
-                        // 重置缓冲区继续等待
-                        responseLen = 0;
-                        memset(response, 0, responseSize);
-                    }
-                }
-            } else if (responseLen < responseSize - 1) {
-                response[responseLen++] = c;
-            }
-        }
+    while (millis() - startTime < timeoutMs && !g_atResponseReady) {
+        readDTU(); // 处理收到的数据
         delay(10); // 短暂延时避免过度占用CPU
     }
     
-    return foundResponse;
+    // 清除响应处理器
+    setLineHandler(nullptr);
+    
+    if (g_atCommandError) {
+        return false;
+    }
+    
+    if (g_atResponseReady && strlen(g_atResponse) > 0) {
+        strncpy(response, g_atResponse, responseSize - 1);
+        response[responseSize - 1] = '\0';
+        return true;
+    }
+    
+    return false;
 }
 
 // 解析CSQ响应，转换为0-100信号强度
