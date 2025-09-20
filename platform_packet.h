@@ -20,7 +20,7 @@ void sendPlatformPacket(char opType,
 void sendHeartbeat();
 
 void sendRealtimeMonitorData(
-    uint8_t year,
+    uint16_t year,
     uint8_t month,
     uint8_t day,
     uint8_t hour,
@@ -32,7 +32,7 @@ void sendRealtimeMonitorData(
 );
 
 void sendMonitorEventUpload(
-    uint8_t year,
+    uint16_t year,
     uint8_t month,
     uint8_t day,
     uint8_t hour,

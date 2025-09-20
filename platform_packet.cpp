@@ -86,8 +86,9 @@ void sendHeartbeat() {
     sendPlatformPacket('R', CMD_HEARTBEAT_REQ, 0, nullptr, 0);
 }
 
+// year字段2字节，高位在前，payload长度15
 void sendRealtimeMonitorData(
-    uint8_t year,
+    uint16_t year,
     uint8_t month,
     uint8_t day,
     uint8_t hour,
@@ -97,23 +98,24 @@ void sendRealtimeMonitorData(
     const uint8_t* exceptionStatus,
     uint8_t waterStatus
 ) {
-    uint8_t payload[14];
-    payload[0] = year;
-    payload[1] = month;
-    payload[2] = day;
-    payload[3] = hour;
-    payload[4] = minute;
-    payload[5] = second;
-    payload[6] = dataFmt;
+    uint8_t payload[15];
+    payload[0] = (uint8_t)(year >> 8);     // 高字节
+    payload[1] = (uint8_t)(year & 0xFF);   // 低字节
+    payload[2] = month;
+    payload[3] = day;
+    payload[4] = hour;
+    payload[5] = minute;
+    payload[6] = second;
+    payload[7] = dataFmt;
     for (int i = 0; i < 6; ++i) {
-        payload[7 + i] = exceptionStatus ? exceptionStatus[i] : 0;
+        payload[8 + i] = exceptionStatus ? exceptionStatus[i] : 0;
     }
-    payload[13] = waterStatus;
+    payload[14] = waterStatus;
     sendPlatformPacket('R', 0x1d00, 0, payload, sizeof(payload));
 }
 
 void sendMonitorEventUpload(
-    uint8_t year,
+    uint16_t year,
     uint8_t month,
     uint8_t day,
     uint8_t hour,
@@ -126,25 +128,26 @@ void sendMonitorEventUpload(
     uint32_t imageLen
 ) {
     if (imageLen > 65000) imageLen = 65000;
-    uint32_t totalLen = 19 + imageLen;
+    uint32_t totalLen = 20 + imageLen; // year占2字节
     uint8_t* payload = (uint8_t*)malloc(totalLen);
     if (!payload) return;
 
-    payload[0] = year;
-    payload[1] = month;
-    payload[2] = day;
-    payload[3] = hour;
-    payload[4] = minute;
-    payload[5] = second;
-    payload[6] = triggerCond;
-    memcpy(payload + 7, &realtimeValue, 4);
-    memcpy(payload + 11, &thresholdValue, 4);
-    payload[15] = (uint8_t)(imageLen & 0xFF);
-    payload[16] = (uint8_t)((imageLen >> 8) & 0xFF);
-    payload[17] = (uint8_t)((imageLen >> 16) & 0xFF);
-    payload[18] = (uint8_t)((imageLen >> 24) & 0xFF);
+    payload[0] = (uint8_t)(year >> 8);
+    payload[1] = (uint8_t)(year & 0xFF);
+    payload[2] = month;
+    payload[3] = day;
+    payload[4] = hour;
+    payload[5] = minute;
+    payload[6] = second;
+    payload[7] = triggerCond;
+    memcpy(payload + 8, &realtimeValue, 4);
+    memcpy(payload + 12, &thresholdValue, 4);
+    payload[16] = (uint8_t)(imageLen & 0xFF);
+    payload[17] = (uint8_t)((imageLen >> 8) & 0xFF);
+    payload[18] = (uint8_t)((imageLen >> 16) & 0xFF);
+    payload[19] = (uint8_t)((imageLen >> 24) & 0xFF);
     if (imageLen > 0 && imageData) {
-        memcpy(payload + 19, imageData, imageLen);
+        memcpy(payload + 20, imageData, imageLen);
     }
     sendPlatformPacket('R', 0x1d09, 0, payload, (uint16_t)totalLen);
     free(payload);

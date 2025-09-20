@@ -14,7 +14,6 @@ extern volatile int g_monitorEventUploadFlag;
 static void uploadRealtimeDataIfNeeded(uint32_t now) {
     if (!comm_isConnected()) return;
     if (!rtc_is_valid()) {
- //       Serial2.println("[UPLOAD] RTC not valid, skip realtime upload.");
         return;
     }
     if (now - lastRealtimeUploadMs < REALTIME_UPLOAD_INTERVAL_MS) return;
@@ -23,7 +22,7 @@ static void uploadRealtimeDataIfNeeded(uint32_t now) {
     rtc_now_fields(&t);
 
     sendRealtimeMonitorData(
-        t.year % 100, t.month, t.day, t.hour, t.minute, t.second, // 用RTC时间
+        t.year, t.month, t.day, t.hour, t.minute, t.second, // 用2字节year
         0,
         nullptr,
         0
@@ -35,7 +34,6 @@ static void uploadRealtimeDataIfNeeded(uint32_t now) {
 static void uploadMonitorEventIfNeeded() {
     if (!comm_isConnected()) return;
     if (!rtc_is_valid()) {
- //       Serial2.println("[UPLOAD] RTC not valid, skip event upload.");
         return;
     }
     if (g_monitorEventUploadFlag != 1) return;
@@ -50,7 +48,7 @@ static void uploadMonitorEventIfNeeded() {
     uint32_t imageLen = 0;
 
     sendMonitorEventUpload(
-        t.year % 100, t.month, t.day, t.hour, t.minute, t.second, triggerCond,
+        t.year, t.month, t.day, t.hour, t.minute, t.second, triggerCond,
         realtimeValue, thresholdValue, imageData, imageLen
     );
 
