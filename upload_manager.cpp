@@ -11,6 +11,26 @@ static uint32_t lastRealtimeUploadMs = 0;
 // 事件上传标志（在 main.ino 中定义，这里只声明使用）
 extern volatile int g_monitorEventUploadFlag;
 
+// ============ 新增：只上报一次开机状态 ============
+static bool g_startupReported = false;
+
+// 开机自动上报（只上报一次，校时+联网后）
+static void uploadStartupStatusIfNeeded() {
+    if (g_startupReported) return;
+    if (!comm_isConnected()) return;
+    if (!rtc_is_valid()) return;
+
+    PlatformTime t;
+    rtc_now_fields(&t);
+
+    // CMD=0x0002开机状态上报，只支持新37字节协议
+    sendStartupStatusReport(
+        t.year, t.month, t.day, t.hour, t.minute, t.second,
+        0 // 默认状态字0
+    );
+    g_startupReported = true;
+}
+
 static void uploadRealtimeDataIfNeeded(uint32_t now) {
     if (!comm_isConnected()) return;
     if (!rtc_is_valid()) {
@@ -57,6 +77,7 @@ static void uploadMonitorEventIfNeeded() {
 
 void upload_drive() {
     uint32_t now = millis();
+    uploadStartupStatusIfNeeded();     // 开机状态上报
     uploadRealtimeDataIfNeeded(now);
     uploadMonitorEventIfNeeded();
 }

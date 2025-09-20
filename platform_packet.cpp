@@ -157,3 +157,43 @@ void sendTimeSyncRequest()
 {
     sendPlatformPacket('R', CMD_TIME_SYNC_REQ, 0, nullptr, 0);
 }
+
+void sendStartupStatusReport
+(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    int32_t statusWord
+) 
+{
+    uint8_t payload[37] = {0};
+    payload[0] = (uint8_t)(year >> 8);
+    payload[1] = (uint8_t)(year & 0xFF);
+    payload[2] = month;
+    payload[3] = day;
+    payload[4] = hour;
+    payload[5] = minute;
+    payload[6] = second;
+    payload[7]  = (uint8_t)((statusWord >> 24) & 0xFF);
+    payload[8]  = (uint8_t)((statusWord >> 16) & 0xFF);
+    payload[9]  = (uint8_t)((statusWord >> 8) & 0xFF);
+    payload[10] = (uint8_t)(statusWord & 0xFF);
+    payload[11] = SW_VER_HIGH;
+    payload[12] = SW_VER_MID;
+    payload[13] = SW_VER_LOW;
+    payload[14] = HW_VER_HIGH;
+    payload[15] = HW_VER_MID;
+    payload[16] = HW_VER_LOW;
+
+    // 产品型号ascii拷贝，最多19字节，第20字节留0
+    const char* model = PRODUCT_MODEL_STR;
+    size_t len = strlen(model);
+    if (len > 19) len = 19;
+    memcpy(payload + 17, model, len);
+    payload[17 + len] = 0; // 保证结尾0
+
+    sendPlatformPacket('R', 0x0002, 0, payload, sizeof(payload));
+}

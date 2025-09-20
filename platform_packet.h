@@ -46,3 +46,30 @@ void sendMonitorEventUpload(
 );
 
 void sendTimeSyncRequest();
+
+// ================= 新增：开机状态上报接口和状态码 =================
+void sendStartupStatusReport(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second,
+    int32_t statusWord
+);
+
+// 状态字枚举（部分，详见协议图片，可根据需求补充）
+#define STATUS_OK                0
+#define STATUS_BOOT_MODE         1
+#define STATUS_WAKEUP            2
+#define STATUS_UPGRADE_WAIT      3
+#define STATUS_APP_MD5_ERR       100
+#define STATUS_APP_UPGRADE_FAIL  101
+#define STATUS_NOT_UPGRADE       102
+#define STATUS_GET_UPGRADE_INFO_TIMEOUT 103
+#define STATUS_UPGRADE_MD5_ERR   104
+#define STATUS_UPGRADE_DATA_ERR  105
+#define STATUS_GET_UPGRADE_BLOCK_ERR 106
+#define STATUS_GET_UPGRADE_DATA_TIMEOUT 107
+#define STATUS_UPGRADE_FILE_TOO_BIG 108
+#define STATUS_UPGRADE_SUCCESS_BUT_FAIL_MANY_TIMES 109
