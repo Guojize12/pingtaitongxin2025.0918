@@ -15,7 +15,7 @@
 #define CMD_HEARTBEAT_REQ   0x0000
 #define CMD_TIME_SYNC_REQ   0x0001
 
-static char g_device_sn[13] = "000000065530";
+static char g_device_sn[13] = "000000065531";
 
 // Time constants (ms)
 static const uint32_t AT_TIMEOUT_MS        = 3000;

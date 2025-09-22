@@ -22,7 +22,7 @@ static bool g_simInfoUploaded = false;
 static void uploadSimInfoIfNeeded() {
     if (g_simInfoUploaded) return;
     if (!comm_isConnected()) {
-        log2("[SIMUP] Not connected, skip.");
+//        log2("[SIMUP] Not connected, skip.");
         return;
     }
     if (!rtc_is_valid()) {

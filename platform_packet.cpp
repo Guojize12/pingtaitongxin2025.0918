@@ -141,10 +141,12 @@ void sendMonitorEventUpload(
     payload[7] = triggerCond;
     memcpy(payload + 8, &realtimeValue, 4);
     memcpy(payload + 12, &thresholdValue, 4);
-    payload[16] = (uint8_t)(imageLen & 0xFF);
-    payload[17] = (uint8_t)((imageLen >> 8) & 0xFF);
-    payload[18] = (uint8_t)((imageLen >> 16) & 0xFF);
-    payload[19] = (uint8_t)((imageLen >> 24) & 0xFF);
+    // ---- 这里改为大端序 ----
+    payload[16] = (uint8_t)((imageLen >> 24) & 0xFF);
+    payload[17] = (uint8_t)((imageLen >> 16) & 0xFF);
+    payload[18] = (uint8_t)((imageLen >> 8) & 0xFF);
+    payload[19] = (uint8_t)(imageLen & 0xFF);
+    // -----------------------
     if (imageLen > 0 && imageData) {
         memcpy(payload + 20, imageData, imageLen);
     }

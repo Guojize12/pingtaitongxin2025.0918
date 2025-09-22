@@ -4,7 +4,6 @@
 #include <ctype.h>
 #include <string.h>
 
-// 辅助：打印调试日志
 #define SIM_DBG 1
 #if SIM_DBG
 #define SIM_LOG(msg) log2(msg)
@@ -16,7 +15,6 @@
 #define SIM_LOGVAL(k, v)
 #endif
 
-// 发送AT并等待应答，带日志
 static bool waitForATResponse(const char* at, char* out, size_t outlen, const char* prefix, uint32_t timeout = 2000) {
     out[0] = 0;
     SIM_LOG2("[SIM] Send AT: ", at);
@@ -39,7 +37,6 @@ static bool waitForATResponse(const char* at, char* out, size_t outlen, const ch
     return false;
 }
 
-// 专门采集IMSI，允许“OK”在前，IMSI出现在后面的行
 static bool collectIMSI(char* out, size_t outlen, uint32_t timeout = 2000) {
     out[0] = 0;
     SIM_LOG2("[SIM] Send AT: ", "AT+CIMI");
@@ -52,7 +49,6 @@ static bool collectIMSI(char* out, size_t outlen, uint32_t timeout = 2000) {
             line.trim();
             if (line.length() == 0) continue;
             SIM_LOG2("[SIM] AT Resp: ", line.c_str());
-            // IMSI是全数字（通常以460开头，长度15位），OK忽略
             if (line == "OK" || !isdigit(line[0])) continue;
             if (line.length() >= 10 && line.length() <= 16) {
                 strncpy(out, line.c_str(), outlen - 1);
@@ -72,7 +68,6 @@ bool siminfo_query(SimInfo* sim) {
     memset(sim, 0, sizeof(SimInfo));
 
     char buf[64];
-    // 1. ICCID
     if (waitForATResponse("AT+MCCID", buf, sizeof(buf), "+MCCID:")) {
         char* p = strchr(buf, ':');
         if (p) {
@@ -89,7 +84,6 @@ bool siminfo_query(SimInfo* sim) {
         SIM_LOG("[SIM] ICCID read fail");
     }
 
-    // 2. IMSI
     if (collectIMSI(buf, sizeof(buf))) {
         strncpy(sim->imsi, buf, 15);
         sim->imsi[15] = 0;
@@ -99,7 +93,6 @@ bool siminfo_query(SimInfo* sim) {
         SIM_LOG("[SIM] IMSI read fail");
     }
 
-    // 3. 信号强度
     if (waitForATResponse("AT+CSQ", buf, sizeof(buf), "+CSQ:")) {
         int rssi = 0;
         char* p = strchr(buf, ':');
