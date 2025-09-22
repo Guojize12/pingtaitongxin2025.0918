@@ -4,6 +4,7 @@
 #include "sdcard_module.h"
 #include "platform_packet.h" // 新增，上传接口
 #include "config.h"
+#include "rtc_soft.h"
 
 extern RunStats g_stats;
 extern RuntimeConfig g_cfg;
