@@ -21,14 +21,27 @@ static bool g_simInfoUploaded = false;
 
 static void uploadSimInfoIfNeeded() {
     if (g_simInfoUploaded) return;
-    if (!comm_isConnected()) return;
-    if (!rtc_is_valid()) return;
+    if (!comm_isConnected()) {
+        log2("[SIMUP] Not connected, skip.");
+        return;
+    }
+    if (!rtc_is_valid()) {
+        log2("[SIMUP] RTC not valid, skip.");
+        return;
+    }
 
+    log2("[SIMUP] Try collect SIM info");
     SimInfo sim;
-    if (!siminfo_query(&sim)) return;
+    if (!siminfo_query(&sim)) {
+        log2("[SIMUP] SIM info collect fail, skip upload.");
+        return;
+    }
 
     PlatformTime t;
     rtc_now_fields(&t);
+
+    log2Str("[SIMUP] Ready upload ICCID: ", sim.iccid);
+    log2Str("[SIMUP] Ready upload IMSI: ", sim.imsi);
 
     sendSimInfoUpload(
         t.year, t.month, t.day, t.hour, t.minute, t.second,
@@ -36,9 +49,9 @@ static void uploadSimInfoIfNeeded() {
         sim.imsi,  sim.imsi_len,
         sim.signal
     );
+    log2("[SIMUP] SIM info upload sent.");
     g_simInfoUploaded = true;
 }
-
 
 // 开机自动上报（只上报一次，校时+联网后）
 static void uploadStartupStatusIfNeeded() {

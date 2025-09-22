@@ -208,6 +208,7 @@ void sendSimInfoUpload(
     const char* imsi,  uint8_t imsi_len,
     uint8_t signal
 ) {
+    log2("[PKT] sendSimInfoUpload called.");
     if (iccid_len > 20) iccid_len = 20;
     if (imsi_len > 15) imsi_len = 15;
 
