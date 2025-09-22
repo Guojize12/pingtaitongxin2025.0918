@@ -78,7 +78,7 @@ void setup() {
   bool prevAsync = g_cfg.asyncSDWrite;
   g_cfg.sendEnabled = false;       // 只保存不上传
   g_cfg.asyncSDWrite = false;      // 确保同步写入立即落盘
-  bool ok = capture_and_process(TRIGGER_BUTTON);
+  bool ok = capture_and_process(TRIGGER_BUTTON, false); // <--- 修改为false
   g_cfg.sendEnabled = prevSend;
   g_cfg.asyncSDWrite = prevAsync;
   if (ok) {
@@ -117,7 +117,7 @@ void loop()
 #if ENABLE_LOG2
       Serial2.println("[BTN] Button pressed, start capture!");
 #endif
-      bool ok = capture_and_process(TRIGGER_BUTTON);
+      bool ok = capture_and_process(TRIGGER_BUTTON, true); // <--- 修改为true
 #if ENABLE_LOG2
       if (ok) Serial2.println("[BTN] Capture and upload OK.");
       else Serial2.println("[BTN] Capture failed!");
