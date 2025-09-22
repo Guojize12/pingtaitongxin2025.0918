@@ -6,6 +6,9 @@
 #include "at_commands.h"
 #include "rtc_soft.h"
 #include "capture_trigger.h"
+#include "camera_module.h"
+#include "sdcard_module.h"
+#include <Preferences.h>
 
 volatile int g_monitorEventUploadFlag = 0;
 unsigned long lastRtcPrint = 0;
@@ -32,12 +35,39 @@ void setup() {
   Serial2.begin(LOG_BAUD, SERIAL_8N1, RX2, TX2);
 #endif
 
-  log2("Boot");
-  log2("UART0 for DTU, UART2 for log");
-  log2Str("Server: ", SERVER_IP);
-  log2Val("Port: ", SERVER_PORT);
+  Serial.println("==== System Boot ====");
+  Serial.println("1. Initializing Camera...");
+  bool camera_ok_local = init_camera_multi(); // 本地变量，防止全局camera_ok被其它代码提前用
+  if (camera_ok_local) {
+    Serial.println("Camera OK");
+  } else {
+    Serial.println("[ERR] Camera init failed!");
+    while(1) delay(1000);
+  }
 
+  Serial.println("2. Initializing SD Card...");
+  init_sd();
+  if (SD.cardType() == CARD_NONE) {
+    Serial.println("[ERR] SD card init failed!");
+    while(1) delay(1000);
+  } else {
+    Serial.println("SD card OK");
+  }
+
+  Serial.println("3. Loading config from NVS...");
+  if (!prefs.begin("cfg", false)) {
+    Serial.println("[ERR] NVS init failed!");
+    while(1) delay(1000);
+  }
+  load_params_from_nvs();
+  Serial.println("NVS OK");
+
+  Serial.println("4. Initializing RTC (soft)...");
   rtc_init();
+  Serial.println("RTC init finish (valid after time sync)");
+
+  Serial.println("All hardware OK, ready to start platform connection...");
+
   resetBackoff();
   gotoStep(STEP_IDLE);
 
