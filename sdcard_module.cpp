@@ -1,6 +1,5 @@
 #include "sdcard_module.h"
 #include "sd_async.h"
-#include "logging.h"
 #include "config.h"
 
 SPIClass sdSPI(VSPI);
@@ -10,7 +9,7 @@ static const uint32_t SD_BACKOFF_MAX = 30000;
 
 void init_sd() {
     sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    if (!SD.begin(SD_CS, sdSPI)) LOG_WARN("[SD] init fail");
+    if (!SD.begin(SD_CS, sdSPI)) /*日志已移除*/;
     else {
         static bool async_started = false;
         if (!async_started) {
@@ -51,7 +50,7 @@ bool save_frame_to_sd(camera_fb_t *fb, uint32_t index) {
         if (sd_async_submit(name, fb->buf, fb->len)) {
             return true;
         } else {
-            LOG_WARN("[SDASYNC] enq fail, fallback to sync");
+            /*日志已移除*/
             return save_frame_to_sd_raw(fb->buf, fb->len, index);
         }
     } else {

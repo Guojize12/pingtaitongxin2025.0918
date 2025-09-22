@@ -1,5 +1,4 @@
 #include "camera_module.h"
-#include "logging.h"
 #include "config.h"
 
 bool camera_ok = false;
@@ -31,7 +30,7 @@ camera_config_t make_config(framesize_t size, int xclk, int q) {
 bool try_camera_init_once(framesize_t size, int xclk, int q) {
     camera_config_t cfg = make_config(size, xclk, q);
     esp_err_t err = esp_camera_init(&cfg);
-    if (err != ESP_OK) LOG_WARN("[CAM] init err=0x%X", (unsigned)err);
+    // 日志已移除
     return err == ESP_OK;
 }
 
@@ -65,14 +64,17 @@ bool reinit_camera_with_params(framesize_t size, int quality) {
     deinit_camera_silent();
     camera_config_t cfg = make_config(size, 20000000, quality);
     if (esp_camera_init(&cfg) == ESP_OK) {
-        camera_ok = true; LOG_INFO("[CAM] reinit fast OK size=%d q=%d", (int)size, quality); return true;
+        camera_ok = true;
+        return true;
     }
     deinit_camera_silent();
     cfg = make_config(size, 10000000, quality + 2);
     if (esp_camera_init(&cfg) == ESP_OK) {
-        camera_ok = true; LOG_INFO("[CAM] reinit slow OK size=%d q=%d", (int)size, quality + 2); return true;
+        camera_ok = true;
+        return true;
     }
-    camera_ok = false; LOG_WARN("[CAM] reinit fail size=%d q=%d", (int)size, quality); return false;
+    camera_ok = false;
+    return false;
 }
 
 void schedule_camera_backoff() {

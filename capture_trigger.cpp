@@ -3,7 +3,6 @@
 #include "camera_module.h"
 #include "sdcard_module.h"
 #include "platform_packet.h" // 新增，上传接口
-#include "logging.h"
 #include "config.h"
 
 extern RunStats g_stats;
@@ -18,7 +17,7 @@ extern uint32_t last_params_saved_ms;
 uint8_t capture_once_internal(uint8_t trigger) {
 #if UPGRADE_ENABLE
     if (g_upg.state == UPG_DOWNLOADING || g_upg.state == UPG_FILE_INFO) {
-        if (g_debugMode) LOG_WARN("[CAP] blocked by upgrade"); return CR_CAMERA_NOT_READY;
+        if (g_debugMode) /*日志已移除*/; return CR_CAMERA_NOT_READY;
     }
 #endif
     if (!camera_ok) return CR_CAMERA_NOT_READY;
