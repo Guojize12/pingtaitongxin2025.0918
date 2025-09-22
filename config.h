@@ -163,3 +163,40 @@ static constexpr uint32_t NVS_MIN_SAVE_INTERVAL_MS = 60UL * 1000UL;
 // Button
 #define BUTTON_PIN 12
 #define TRIGGER_BUTTON 1
+
+typedef struct {
+    bool saveEnabled;
+    bool sendEnabled;
+    bool asyncSDWrite;
+} RuntimeConfig;
+
+extern RuntimeConfig g_cfg;
+
+typedef struct {
+    uint32_t total_captures;
+    uint32_t last_frame_size;
+    uint32_t last_capture_ms;
+    uint32_t consecutive_capture_fail;
+    uint32_t consecutive_sd_fail;
+} RunStats;
+
+extern RunStats g_stats;
+
+// 拍照返回码
+#define CR_OK 0
+#define CR_CAMERA_NOT_READY 1
+#define CR_FRAME_GRAB_FAIL 2
+#define CR_SD_SAVE_FAIL 3
+
+// 升级相关占位
+typedef struct {
+    int state;
+} UpgradeState;
+#define UPG_DOWNLOADING 1
+#define UPG_FILE_INFO 2
+extern UpgradeState g_upg;
+extern bool g_debugMode;
+
+// 占位失败处理函数
+inline void handle_camera_failure() {}
+inline void handle_sd_failure() {}

@@ -10,6 +10,11 @@
 volatile int g_monitorEventUploadFlag = 0;
 unsigned long lastRtcPrint = 0;
 
+RuntimeConfig g_cfg = {true, true, true};
+RunStats g_stats = {0};
+UpgradeState g_upg = {0};
+bool g_debugMode = false;
+
 // 按钮消抖及 busy 标志
 int lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
