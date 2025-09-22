@@ -15,6 +15,11 @@ RunStats g_stats = {0};
 UpgradeState g_upg = {0};
 bool g_debugMode = false;
 
+Preferences prefs;               
+uint32_t photo_index = 1;        
+uint8_t g_flashDuty = DEFAULT_FLASH_DUTY;  
+uint32_t last_params_saved_ms = 0;         
+
 // 按钮消抖及 busy 标志
 int lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
