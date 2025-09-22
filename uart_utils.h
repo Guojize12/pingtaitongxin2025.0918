@@ -1,9 +1,16 @@
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
+#if ENABLE_LOG2
 void log2(const char* msg);
 void log2Val(const char* k, int v);
 void log2Str(const char* k, const char* v);
+#else
+#define log2(msg)            ((void)0)
+#define log2Val(k, v)        ((void)0)
+#define log2Str(k, v)        ((void)0)
+#endif
 
 void sendRaw(const char* s);
 void sendCmd(const char* cmd);

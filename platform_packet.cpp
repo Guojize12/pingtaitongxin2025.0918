@@ -68,7 +68,7 @@ void sendPlatformPacket(char opType,
     buf[pos++] = '\n';
     buf[pos] = '\0';
 
-    // 只保留关键日志
+#if ENABLE_LOG2
     Serial2.print("[UART0 TX PlatformPkt HEX] ");
     for (size_t i = 0; i < n; ++i) {
         if (pkt[i] < 16) Serial2.print("0");
@@ -78,10 +78,12 @@ void sendPlatformPacket(char opType,
     Serial2.println();
     Serial2.print("Send PlatformPkt len=");
     Serial2.println((int)n);
+#endif
 
     Serial.write((const uint8_t*)buf, pos);
 }
 
+// ...其余函数无Serial2输出，不变
 void sendHeartbeat() {
     sendPlatformPacket('R', CMD_HEARTBEAT_REQ, 0, nullptr, 0);
 }

@@ -2,10 +2,15 @@
 #include <stdint.h>  // for uint32_t
 #include <stddef.h>  // for size_t
 
+#define ENABLE_LOG2 0 // 日志和串口2总开关，0为全部屏蔽，1为全部开启
+
 #define SERVER_IP   "47.104.5.75"
 #define SERVER_PORT 9909
+
+#if ENABLE_LOG2
 #define TX2         15
 #define RX2         13
+#endif
 
 #define DTU_BAUD    115200
 #define LOG_BAUD    115200

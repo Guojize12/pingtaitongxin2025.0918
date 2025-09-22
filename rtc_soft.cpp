@@ -1,5 +1,6 @@
 #include "rtc_soft.h"
 #include <Arduino.h>
+#include "config.h"
 
 static bool s_valid = false;
 static uint32_t s_base_epoch = 0;      // 上次校时的UTC秒（UNIX epoch）
@@ -120,6 +121,7 @@ void rtc_on_sync(const PlatformTime* plat, uint32_t recv_millis) {
     s_base_millis = recv_millis;
     s_valid = true;
 
+#if ENABLE_LOG2
     Serial2.print("[RTC] Sync OK: ");
     Serial2.print(plat->year); Serial2.print("-");
     Serial2.print((int)plat->month); Serial2.print("-");
@@ -131,4 +133,5 @@ void rtc_on_sync(const PlatformTime* plat, uint32_t recv_millis) {
     Serial2.print(recv_millis);
     Serial2.println(")");
     Serial2.println("[RTC] RTC is now valid, uploading enabled.");
+#endif
 }

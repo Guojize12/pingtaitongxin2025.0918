@@ -11,7 +11,9 @@ unsigned long lastRtcPrint = 0;
 
 void setup() {
   Serial.begin(DTU_BAUD);
+#if ENABLE_LOG2
   Serial2.begin(LOG_BAUD, SERIAL_8N1, RX2, TX2);
+#endif
 
   log2("Boot");
   log2("UART0 for DTU, UART2 for log");
@@ -31,6 +33,8 @@ void loop()
   // 只在未校时时每10秒提示一次
   if (!rtc_is_valid() && millis() - lastRtcPrint > 10000) {
     lastRtcPrint = millis();
+#if ENABLE_LOG2
     Serial2.println("[RTC] Not valid yet.");
+#endif
   }
 }

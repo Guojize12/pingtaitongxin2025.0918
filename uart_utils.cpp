@@ -1,6 +1,6 @@
 #include "uart_utils.h"
 #include "config.h"
-#include "rtc_soft.h"    // 新增
+#include "rtc_soft.h"
 
 // Line buffer
 static char lineBuf[LINE_BUF_MAX];
@@ -11,10 +11,11 @@ static void (*lineHandler)(const char*) = nullptr;
 volatile bool g_platformTimeParsed = false;
 PlatformTime g_platformTime = {0};
 
-// Print functions
+#if ENABLE_LOG2
 void log2(const char* msg) { Serial2.println(msg); }
 void log2Val(const char* k, int v) { Serial2.print(k); Serial2.println(v); }
 void log2Str(const char* k, const char* v) { Serial2.print(k); Serial2.println(v); }
+#endif
 
 void sendRaw(const char* s) {
   Serial.write((const uint8_t*)s, strlen(s));
@@ -28,8 +29,9 @@ void sendCmd(const char* cmd) {
 void setLineHandler(void (*handler)(const char*)) { lineHandler = handler; }
 
 // 只打印HEX不分行
-static void dumpHex(const uint8_t* d, int n) 
+static void dumpHex(const uint8_t* d, int n)
 {
+#if ENABLE_LOG2
   Serial2.print("[HEX DUMP] ");
   for (int i = 0; i < n; ++i) {
     if (d[i] < 16) Serial2.print("0");
@@ -37,6 +39,7 @@ static void dumpHex(const uint8_t* d, int n)
     Serial2.print(" ");
   }
   Serial2.println();
+#endif
 }
 
 // 解析平台时间包（仅CMD=0x0001时）
@@ -59,6 +62,7 @@ bool parsePlatformTime(const uint8_t* data, size_t len, PlatformTime* time) {
       time->second > 59) {
     return false;
   }
+#if ENABLE_LOG2
   Serial2.print("Platform time: ");
   Serial2.print(time->year);
   Serial2.print("-");
@@ -76,6 +80,7 @@ bool parsePlatformTime(const uint8_t* data, size_t len, PlatformTime* time) {
   Serial2.print(":");
   if (time->second < 10) Serial2.print("0");
   Serial2.println(time->second);
+#endif
   return true;
 }
 
