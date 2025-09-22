@@ -16,3 +16,6 @@ void sd_async_on_sd_lost();
 // 提交写入任务到异步队列
 // 返回true代表已成功排队, false表示队列已满或资源不足
 bool sd_async_submit(const char* path, const uint8_t* data, size_t len);
+
+// 在主循环中调用以执行实际写入（处理队列）
+void sd_async_loop();

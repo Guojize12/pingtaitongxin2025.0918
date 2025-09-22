@@ -8,6 +8,8 @@
 #include "capture_trigger.h"
 #include "camera_module.h"
 #include "sdcard_module.h"
+#include "sd_async.h"            // 新增：异步SD队列处理
+#include "flash_module.h"        // 新增：补光灯初始化
 #include <Preferences.h>
 
 volatile int g_monitorEventUploadFlag = 0;
@@ -18,10 +20,10 @@ RunStats g_stats = {0};
 UpgradeState g_upg = {0};
 bool g_debugMode = false;
 
-Preferences prefs;               
-uint32_t photo_index = 1;        
-uint8_t g_flashDuty = DEFAULT_FLASH_DUTY;  
-uint32_t last_params_saved_ms = 0;         
+Preferences prefs;
+uint32_t photo_index = 1;
+uint8_t g_flashDuty = DEFAULT_FLASH_DUTY;
+uint32_t last_params_saved_ms = 0;
 
 // 按钮消抖及 busy 标志
 int lastButtonState = HIGH;
@@ -37,7 +39,8 @@ void setup() {
 
   Serial.println("==== System Boot ====");
   Serial.println("1. Initializing Camera...");
-  bool camera_ok_local = init_camera_multi(); // 本地变量，防止全局camera_ok被其它代码提前用
+  bool camera_ok_local = init_camera_multi();
+  camera_ok = camera_ok_local; // 关键修复：同步全局状态，避免二次初始化
   if (camera_ok_local) {
     Serial.println("Camera OK");
   } else {
@@ -54,6 +57,9 @@ void setup() {
     Serial.println("SD card OK");
   }
 
+  // 初始化补光灯PWM，确保首次拍照可控
+  flashInit();
+
   Serial.println("3. Loading config from NVS...");
   if (!prefs.begin("cfg", false)) {
     Serial.println("[ERR] NVS init failed!");
@@ -66,6 +72,21 @@ void setup() {
   rtc_init();
   Serial.println("RTC init finish (valid after time sync)");
 
+  // 自检完成后先拍一张测试照（仅保存，不上传）
+  Serial.println("5. Taking initial test photo (save only)...");
+  bool prevSend = g_cfg.sendEnabled;
+  bool prevAsync = g_cfg.asyncSDWrite;
+  g_cfg.sendEnabled = false;       // 只保存不上传
+  g_cfg.asyncSDWrite = false;      // 确保同步写入立即落盘
+  bool ok = capture_and_process(TRIGGER_BUTTON);
+  g_cfg.sendEnabled = prevSend;
+  g_cfg.asyncSDWrite = prevAsync;
+  if (ok) {
+    Serial.println("Initial photo captured and saved to SD.");
+  } else {
+    Serial.println("[ERR] Initial photo capture or save failed!");
+  }
+
   Serial.println("All hardware OK, ready to start platform connection...");
 
   resetBackoff();
@@ -74,10 +95,15 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 }
 
-void loop() 
+void loop()
 {
   readDTU();
   driveStateMachine();
+
+  // 如果启用异步写，处理写队列
+  if (g_cfg.asyncSDWrite) {
+    sd_async_loop();
+  }
 
   // 按钮检测与消抖
   int reading = digitalRead(BUTTON_PIN);
@@ -91,8 +117,7 @@ void loop()
 #if ENABLE_LOG2
       Serial2.println("[BTN] Button pressed, start capture!");
 #endif
-      // 拍照并上传
-      bool ok = capture_and_process(1); // 1 = TRIGGER_BUTTON
+      bool ok = capture_and_process(TRIGGER_BUTTON);
 #if ENABLE_LOG2
       if (ok) Serial2.println("[BTN] Capture and upload OK.");
       else Serial2.println("[BTN] Capture failed!");

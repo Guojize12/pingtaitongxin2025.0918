@@ -200,3 +200,12 @@ extern bool g_debugMode;
 // 占位失败处理函数
 inline void handle_camera_failure() {}
 inline void handle_sd_failure() {}
+
+// 禁用异步SD写
+#undef ENABLE_ASYNC_SD_WRITE
+#define ENABLE_ASYNC_SD_WRITE 0
+#undef ASYNC_SD_ENABLE
+#define ASYNC_SD_ENABLE 0
+// 禁用FLASH_MODE，强制数字IO闪光
+#undef FLASH_MODE
+#define FLASH_MODE 0

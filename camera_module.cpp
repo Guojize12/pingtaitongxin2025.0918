@@ -35,17 +35,25 @@ bool try_camera_init_once(framesize_t size, int xclk, int q) {
 }
 
 bool init_camera_multi() {
+    camera_ok = false; // 开始前先置为false
     pinMode(PWDN_GPIO, OUTPUT); digitalWrite(PWDN_GPIO, LOW); delay(30);
     for (int i = 0; i < INIT_RETRY_PER_CONFIG; i++) {
-        if (try_camera_init_once(FRAME_SIZE_PREF, 20000000, JPEG_QUALITY_PREF)) return true;
+        if (try_camera_init_once(FRAME_SIZE_PREF, 20000000, JPEG_QUALITY_PREF)) {
+            camera_ok = true;
+            return true;
+        }
         delay(120);
     }
     esp_camera_deinit(); delay(60);
     for (int i = 0; i < INIT_RETRY_PER_CONFIG; i++) {
-        if (try_camera_init_once(FRAME_SIZE_FALLBACK, 10000000, JPEG_QUALITY_FALLBACK)) return true;
+        if (try_camera_init_once(FRAME_SIZE_FALLBACK, 10000000, JPEG_QUALITY_FALLBACK)) {
+            camera_ok = true;
+            return true;
+        }
         delay(150);
     }
     esp_camera_deinit();
+    camera_ok = false;
     return false;
 }
 
