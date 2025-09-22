@@ -30,7 +30,7 @@ static const uint32_t AT_TIMEOUT_MS        = 3000;
 static const uint32_t REG_TIMEOUT_MS       = 8000;
 static const uint32_t OPEN_TIMEOUT_MS      = 15000;
 static const uint32_t STATE_POLL_MS        = 10000;
-static const uint32_t HEARTBEAT_INTERVAL_MS = 30000;
+static const uint32_t HEARTBEAT_INTERVAL_MS = 60000;
 static const uint32_t BACKOFF_MAX_MS = 30000;
 static const uint32_t REALTIME_UPLOAD_INTERVAL_MS = 30000;
 
@@ -52,7 +52,6 @@ extern volatile int g_monitorEventUploadFlag;
 // 20字节产品型号，末尾补0
 #define PRODUCT_MODEL_STR "MODEL-TEST"
 
-// ================== 合并新增内容 ==================
 
 // ===== 异步SD写与内存池（务必放在最前，确保其它头文件引用这些宏时已定义）=====
 #ifndef ASYNC_SD_ENABLE
