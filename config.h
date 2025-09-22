@@ -1,7 +1,10 @@
 #pragma once
 #include <stdint.h>  // for uint32_t
 #include <stddef.h>  // for size_t
+#include <Arduino.h>
+#include "esp_camera.h"
 
+// ================== 现有配置 ==================
 #define ENABLE_LOG2 0 // 日志和串口2总开关，0为全部屏蔽，1为全部开启
 
 #define SERVER_IP   "47.104.5.75"
@@ -48,3 +51,115 @@ extern volatile int g_monitorEventUploadFlag;
 
 // 20字节产品型号，末尾补0
 #define PRODUCT_MODEL_STR "MODEL-TEST"
+
+// ================== 合并新增内容 ==================
+
+// ===== 异步SD写与内存池（务必放在最前，确保其它头文件引用这些宏时已定义）=====
+#ifndef ASYNC_SD_ENABLE
+#define ASYNC_SD_ENABLE 1
+#endif
+
+#ifndef ASYNC_SD_POOL_BLOCK_SIZE
+#define ASYNC_SD_POOL_BLOCK_SIZE (256 * 1024)
+#endif
+
+#ifndef ASYNC_SD_POOL_BLOCKS
+#define ASYNC_SD_POOL_BLOCKS 3
+#endif
+
+#ifndef ASYNC_SD_QUEUE_LENGTH
+#define ASYNC_SD_QUEUE_LENGTH 8
+#endif
+
+#ifndef ASYNC_SD_TASK_STACK
+#define ASYNC_SD_TASK_STACK 4096
+#endif
+
+#ifndef ASYNC_SD_TASK_PRIO
+#define ASYNC_SD_TASK_PRIO 3
+#endif
+
+#ifndef ASYNC_SD_MAX_PATH
+#define ASYNC_SD_MAX_PATH 96
+#endif
+
+#ifndef ASYNC_SD_SUBMIT_TIMEOUT_MS
+#define ASYNC_SD_SUBMIT_TIMEOUT_MS 50
+#endif
+
+#ifndef ASYNC_SD_FLUSH_TIMEOUT_MS
+#define ASYNC_SD_FLUSH_TIMEOUT_MS 5000
+#endif
+// ===== 异步SD写与内存池 END =====
+
+// === 开关 ===
+#define UPGRADE_ENABLE 1
+
+// === 基本参数 ===
+#define SERIAL_BAUD                    115200
+#define DEFAULT_FLASH_DUTY             80
+#define FRAME_SIZE_PREF                FRAMESIZE_SVGA
+#define FRAME_SIZE_FALLBACK            FRAMESIZE_VGA
+#define JPEG_QUALITY_PREF              15
+#define JPEG_QUALITY_FALLBACK          20
+#define INIT_RETRY_PER_CONFIG          3
+#define RUNTIME_FAIL_REINIT_THRESHOLD  3
+#define CAPTURE_FAIL_REBOOT_THRESHOLD  10
+#define SD_FAIL_REBOOT_THRESHOLD       10
+#define HEAP_MIN_REBOOT                10000
+#define SD_MIN_FREE_MB                 5
+#define DISCARD_FRAMES_ON_START        3
+#define DISCARD_FRAMES_EACH_SHOT       0
+#define ENABLE_AUTO_REINIT             1
+#define ENABLE_STATS_LOG               1
+#define ENABLE_FRAME_HEADER            0
+#define ENABLE_ASYNC_SD_WRITE          0
+#define SAVE_PARAMS_INTERVAL_IMAGES    50
+#define DEFAULT_SEND_BEFORE_SAVE       1
+#define FLASH_MODE                     1
+#define FLASH_WARM_MS                  60
+#define FLASH_ON_TIME_MS_DIGITAL       40
+#define HEAP_WARN_THRESHOLD            16000
+#define HEAP_LARGEST_BLOCK_WARN        12000
+static constexpr uint32_t NVS_MIN_SAVE_INTERVAL_MS = 60UL * 1000UL;
+
+#ifndef PROTO_MIN_SEND_INTERVAL_MS
+#define PROTO_MIN_SEND_INTERVAL_MS 150  // 最小发送间隔(ms)，设置为0可完全关闭节流
+#endif
+
+// === 引脚 ===
+#define PWDN_GPIO 32
+#define RESET_GPIO -1
+#define XCLK_GPIO 0
+#define SIOD_GPIO 26
+#define SIOC_GPIO 27
+#define Y9_GPIO 35
+#define Y8_GPIO 34
+#define Y7_GPIO 39
+#define Y6_GPIO 36
+#define Y5_GPIO 21
+#define Y4_GPIO 19
+#define Y3_GPIO 18
+#define Y2_GPIO 5
+#define VSYNC_GPIO 25
+#define HREF_GPIO 23
+#define PCLK_GPIO 22
+
+// SD Pins
+#define SD_CS   13
+#define SD_SCK  14
+#define SD_MISO 2
+#define SD_MOSI 15
+
+// Flash
+#define FLASH_PIN 4
+#if FLASH_MODE
+  #define FLASH_FREQ_HZ      5000
+  #define FLASH_RES_BITS     8
+  #define FLASH_TIMER        LEDC_TIMER_1
+  #define FLASH_SPEED_MODE   LEDC_LOW_SPEED_MODE
+  #define FLASH_CHANNEL      LEDC_CHANNEL_4
+#endif
+
+// Button
+#define BUTTON_PIN 12
