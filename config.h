@@ -162,3 +162,4 @@ static constexpr uint32_t NVS_MIN_SAVE_INTERVAL_MS = 60UL * 1000UL;
 
 // Button
 #define BUTTON_PIN 12
+#define TRIGGER_BUTTON 1

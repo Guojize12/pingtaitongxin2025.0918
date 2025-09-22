@@ -2,7 +2,7 @@
 #include "flash_module.h"
 #include "camera_module.h"
 #include "sdcard_module.h"
-#include "upgrade.h"
+#include "platform_packet.h" // 新增，上传接口
 #include "logging.h"
 #include "config.h"
 
@@ -12,7 +12,8 @@ extern Preferences prefs;
 extern uint32_t photo_index;
 extern uint8_t g_flashDuty;
 extern uint32_t last_params_saved_ms;
-extern void platform_send_image(uint8_t trigger, const uint8_t* jpeg, uint32_t jpegLen, uint32_t frameIndex);
+
+// #define TRIGGER_BUTTON 1 // 可以选择这里定义，也可以在 config.h
 
 uint8_t capture_once_internal(uint8_t trigger) {
 #if UPGRADE_ENABLE
@@ -37,25 +38,40 @@ uint8_t capture_once_internal(uint8_t trigger) {
     uint32_t index = photo_index;
     bool sdOk = true;
 
-    if (g_cfg.sendEnabled && g_cfg.sendBeforeSave)
-        platform_send_image(trigger, fb->buf, fb->len, index);
+    // 拍照完成后本地保存
     if (g_cfg.saveEnabled) sdOk = save_frame_to_sd(fb, index);
-    if (g_cfg.sendEnabled && !g_cfg.sendBeforeSave)
-        platform_send_image(trigger, fb->buf, fb->len, index);
 
     if (sdOk || !g_cfg.saveEnabled) {
         photo_index++;
         if (photo_index % SAVE_PARAMS_INTERVAL_IMAGES == 0) save_params_to_nvs();
         else if (millis() - last_params_saved_ms >= NVS_MIN_SAVE_INTERVAL_MS) save_params_to_nvs();
     }
-    esp_camera_fb_return(fb);
     flashOff();
+
+    // 新增：拍照成功后上传图片
+    if (g_cfg.sendEnabled) {
+        // 获取当前时间
+        PlatformTime t;
+        rtc_now_fields(&t);
+        // 触发条件为按钮
+        uint8_t triggerCond = trigger;
+        float realtimeValue = 0.0f;
+        float thresholdValue = 0.0f;
+        sendMonitorEventUpload(
+            t.year, t.month, t.day, t.hour, t.minute, t.second,
+            triggerCond,
+            realtimeValue,
+            thresholdValue,
+            fb->buf, fb->len
+        );
+    }
+
+    esp_camera_fb_return(fb);
 
     g_stats.total_captures++;
     g_stats.last_frame_size = frame_len;
     g_stats.last_capture_ms = millis();
     if (!sdOk && g_cfg.saveEnabled) return CR_SD_SAVE_FAIL;
-    // check_and_reboot_on_low_heap(); // 保持原有主流程调用
     return CR_OK;
 }
 
@@ -79,7 +95,6 @@ void wait_button_release_on_boot() {
         while (digitalRead(BUTTON_PIN) == LOW) delay(10);
 }
 
-// NVS参数存取
 void save_params_to_nvs() {
     prefs.putUChar("flashduty", g_flashDuty);
     prefs.putUInt("photo_idx", photo_index);
