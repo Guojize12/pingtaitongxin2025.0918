@@ -36,6 +36,9 @@ static bool waitingForLongPress = false;
 static unsigned long buttonPressStartMs = 0;
 static const unsigned long LONG_PRESS_MS = 10000UL; // 10秒
 
+// 新增：全局水浸传感器“报警”状态（0=正常，1=报警）
+volatile uint8_t g_waterSensorStatus = 0;
+
 void setup() {
   Serial.begin(DTU_BAUD);
 #if ENABLE_LOG2
@@ -133,6 +136,8 @@ void loop()
           if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
           else Serial2.println("[BTN] Capture failed!");
 #endif
+          // 新增：长按超过10秒，进入“报警”状态
+          g_waterSensorStatus = 1;
           captureBusy = false;
           // 必须松手后再允许下一次
           waitingForLongPress = false;
@@ -142,6 +147,8 @@ void loop()
     } else { // 松开
       waitingForLongPress = false;
       buttonPressStartMs = 0;
+      // 松手时清零“报警”状态
+      g_waterSensorStatus = 0;
     }
   }
 

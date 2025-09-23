@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include <FS.h>
 #include <SD.h>
+#include "camera_module.h"
 
 // 定时上传的计时器
 static uint32_t lastRealtimeUploadMs = 0;
@@ -16,6 +17,9 @@ extern volatile int g_monitorEventUploadFlag;
 
 // 最后一张照片文件名（由 capture_trigger 维护）
 extern char g_lastPhotoName[64];
+
+// 新增：来自 main.ino 的水浸报警全局变量
+extern volatile uint8_t g_waterSensorStatus;
 
 // ============ 新增：只上报一次开机状态 ============
 static bool g_startupReported = false;
@@ -82,15 +86,27 @@ static void uploadRealtimeDataIfNeeded(uint32_t now) {
     PlatformTime t;
     rtc_now_fields(&t);
 
+    // 构造异常状态
+    uint8_t exceptionStatus = 0;
+    // Bit0: 摄像头异常 (1=异常, 0=正常)
+    if (!camera_ok) exceptionStatus |= 0x01;
+    // Bit1: 水浸传感器异常 (1=异常, 0=正常)
+    if (g_waterSensorStatus) exceptionStatus |= 0x02;
+
+    // 构造水浸状态（第13字节）
+    uint8_t waterStatus = g_waterSensorStatus ? 1 : 0;
+
     sendRealtimeMonitorData(
-        t.year, t.month, t.day, t.hour, t.minute, t.second, // 用2字节year
+        t.year, t.month, t.day, t.hour, t.minute, t.second,
         0,
-        nullptr,
-        0
+        &exceptionStatus,
+        waterStatus
     );
 
     lastRealtimeUploadMs = now;
 }
+
+// 其它部分不变...
 
 // 将 g_lastPhotoName 指向的文件读取到内存（≤65000），成功返回malloc的指针与长度
 static uint8_t* read_photo_into_ram(size_t& outLen) {
@@ -172,7 +188,7 @@ static void uploadMonitorEventIfNeeded() {
         );
     }
 
-    // 按你的要求：上传成功不删除本地文件，这里不做删除
+    // 上传成功不删除本地文件，这里不做删除
     g_monitorEventUploadFlag = 0; // 上传一次后清零
 }
 
