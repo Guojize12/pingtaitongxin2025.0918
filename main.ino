@@ -105,11 +105,6 @@ void loop()
   readDTU();
   driveStateMachine();
 
-  // 如果启用异步写，处理写队列（轻量、快返回）
-  if (g_cfg.asyncSDWrite) {
-    sd_async_loop();
-  }
-
   // 按钮检测与消抖
   int reading = digitalRead(BUTTON_PIN);
   if (reading != lastButtonState) {
