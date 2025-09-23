@@ -1,21 +1,37 @@
 #pragma once
 #include <Arduino.h>
+#include "config.h"  
 
-// 初始化异步SD写任务、队列等资源
-void sd_async_init();
+struct SdAsyncStats {
+  uint32_t enq_ok = 0;
+  uint32_t enq_drop = 0;
+  uint32_t write_ok = 0;
+  uint32_t write_fail = 0;
+  uint32_t pool_free = 0;
+  uint32_t pool_total = 0;
+  uint32_t q_depth = 0;
+  uint32_t q_max = 0;
+  uint32_t task_stack_min = 0; // 最小剩余栈
+  bool     running = false;
+  bool     sd_ready = false;
+};
 
-// 启动后台异步SD写任务
-void sd_async_start();
+// 后台异步SD写接口（采用 FreeRTOS 任务+内存池）
+bool sd_async_init();                      // 仅初始化数据结构（不启任务）
+bool sd_async_start();                     // 启动后台写任务
+void sd_async_stop(bool drain = true);     // 停止任务；drain=true会试着写完队列
+bool sd_async_on_sd_ready();               // SD挂载完成后调用（或在 start 之前已挂载）
+void sd_async_on_sd_lost();                // SD拔出/重挂前调用
 
-// 主动通知SD卡已准备好（一般在SD卡挂载后调用）
-void sd_async_on_sd_ready();
+// 提交一个写任务（内部会处理大于池块的缓冲：按块切分并按顺序追加写）
+bool sd_async_submit(const char* path, const uint8_t* data, size_t len,
+                     uint32_t timeout_ms = ASYNC_SD_SUBMIT_TIMEOUT_MS);
 
-// 主动通知SD卡已丢失（一般在SD卡拔出/挂载失败后调用）
-void sd_async_on_sd_lost();
+// 等待队列清空
+bool sd_async_flush(uint32_t timeout_ms = ASYNC_SD_FLUSH_TIMEOUT_MS);
 
-// 提交写入任务到异步队列
-// 返回true代表已成功排队, false表示队列已满或资源不足
-bool sd_async_submit(const char* path, const uint8_t* data, size_t len);
+// 获取运行统计
+void sd_async_get_stats(SdAsyncStats& out);
 
-// 在主循环中调用以执行实际写入（处理队列）
-void sd_async_loop();
+// 是否空闲（队列空且任务无在写）
+bool sd_async_idle();
