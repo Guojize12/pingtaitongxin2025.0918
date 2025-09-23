@@ -180,6 +180,6 @@ void upload_drive() {
     uint32_t now = millis();
     uploadStartupStatusIfNeeded();     // 开机状态上报
     uploadSimInfoIfNeeded();           // SIM卡状态上报
-    uploadRealtimeDataIfNeeded(now);
-    uploadMonitorEventIfNeeded();
+    uploadRealtimeDataIfNeeded(now);   // 实时数据上报
+    uploadMonitorEventIfNeeded();      // 事件图片上传
 }

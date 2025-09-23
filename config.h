@@ -96,19 +96,29 @@ extern volatile int g_monitorEventUploadFlag;
 
 // === 基本参数 ===
 #define SERIAL_BAUD                    115200
-#define DEFAULT_FLASH_DUTY             80
+
+// 提升补光占空/预热时长（遮挡时会自动回退，无副作用）
+#define DEFAULT_FLASH_DUTY             120
+#define FLASH_WARM_MS                  80
+
+// 分辨率/画质：数值越小画质越高（文件更大）
 #define FRAME_SIZE_PREF                FRAMESIZE_SVGA
 #define FRAME_SIZE_FALLBACK            FRAMESIZE_VGA
-#define JPEG_QUALITY_PREF              15
-#define JPEG_QUALITY_FALLBACK          20
+#define JPEG_QUALITY_PREF              8
+#define JPEG_QUALITY_FALLBACK          12
+
 #define INIT_RETRY_PER_CONFIG          3
 #define RUNTIME_FAIL_REINIT_THRESHOLD  3
 #define CAPTURE_FAIL_REBOOT_THRESHOLD  10
 #define SD_FAIL_REBOOT_THRESHOLD       10
 #define HEAP_MIN_REBOOT                10000
 #define SD_MIN_FREE_MB                 5
+
+// 上电后丢帧，促使AWB/AE收敛
 #define DISCARD_FRAMES_ON_START        3
-#define DISCARD_FRAMES_EACH_SHOT       0
+// 每次拍照前在补光开启条件下丢弃的帧数（强烈建议>=3）
+#define DISCARD_FRAMES_EACH_SHOT       5
+
 #define ENABLE_AUTO_REINIT             1
 #define ENABLE_STATS_LOG               1
 #define ENABLE_FRAME_HEADER            0
@@ -116,7 +126,6 @@ extern volatile int g_monitorEventUploadFlag;
 #define SAVE_PARAMS_INTERVAL_IMAGES    50
 #define DEFAULT_SEND_BEFORE_SAVE       1
 #define FLASH_MODE                     1
-#define FLASH_WARM_MS                  60
 #define FLASH_ON_TIME_MS_DIGITAL       40
 #define HEAP_WARN_THRESHOLD            16000
 #define HEAP_LARGEST_BLOCK_WARN        12000
@@ -124,6 +133,12 @@ static constexpr uint32_t NVS_MIN_SAVE_INTERVAL_MS = 60UL * 1000UL;
 
 #ifndef PROTO_MIN_SEND_INTERVAL_MS
 #define PROTO_MIN_SEND_INTERVAL_MS 150  // 最小发送间隔(ms)，设置为0可完全关闭节流
+#endif
+
+// 按JPEG大小近似判断是否过暗的阈值（单位：字节）
+// 说明：在SVGA/VGA等小分辨率下，极暗场景通常产生更小的JPEG；可按实测微调
+#ifndef JPEG_LEN_DARK_THRESH
+#define JPEG_LEN_DARK_THRESH 16000
 #endif
 
 // === 引脚 ===
