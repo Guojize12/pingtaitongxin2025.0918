@@ -7,6 +7,10 @@
 // 头部固定长度
 static const uint16_t PLATFORM_HEADER_LEN = 21;
 
+// 每次 MIPSEND 发送的二进制字节数上限（将被转成 2x HEX 字符）
+// 取 512 字节更容易满足多数模组单行长度限制
+static const size_t MIPSEND_BIN_CHUNK = 512;
+
 // 保留原构建函数（小包可用）；大包发送走流式发送
 size_t build_platform_packet(uint8_t* out,
                              char opType,
@@ -56,7 +60,22 @@ static void hexWriteBuf(const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; ++i) hexByte(data[i]);
 }
 
-// 流式发送平台数据包：避免巨大临时缓冲，支持大payload（≤65K）
+// 发送一段 HEX 数据（包装成一条 AT+MIPSEND=0,0,<HEX>\r\n）
+// 注意：多次调用将依次在 TCP 上连续发送，平台协议数据在流上保持连续
+static void mipSendHex(const uint8_t* data, size_t len) {
+    while (len) {
+        size_t n = len > MIPSEND_BIN_CHUNK ? MIPSEND_BIN_CHUNK : len;
+        Serial.write((const uint8_t*)"AT+MIPSEND=0,0,", 15);
+        hexWriteBuf(data, n);
+        Serial.write((const uint8_t*)"\r\n", 2);
+        data += n;
+        len  -= n;
+        // 适度让出 CPU/给模组时间处理，避免串口拥塞
+        delay(2);
+    }
+}
+
+// 分块流式发送平台数据包：避免超长单行 AT，支持大payload（≤65K）
 void sendPlatformPacket(char opType,
                         uint16_t cmd,
                         uint8_t pid,
@@ -83,26 +102,20 @@ void sendPlatformPacket(char opType,
         dataCrc = crc16_modbus(payload, payloadLen);
     }
 
-    // 3) 构造 AT 命令前缀
-    Serial.write((const uint8_t*)"AT+MIPSEND=0,0,", 15);
+    // 3) 先发送 header + 头CRC（23字节）
+    uint8_t headBlock[PLATFORM_HEADER_LEN + 2];
+    memcpy(headBlock, header, PLATFORM_HEADER_LEN);
+    headBlock[PLATFORM_HEADER_LEN]     = (uint8_t)(headCrc >> 8);
+    headBlock[PLATFORM_HEADER_LEN + 1] = (uint8_t)(headCrc & 0xFF);
+    mipSendHex(headBlock, sizeof(headBlock));
 
-    // 4) 发送 header hex
-    hexWriteBuf(header, PLATFORM_HEADER_LEN);
-
-    // 5) 发送头CRC（大端）
-    uint8_t hcrc_be[2] = { (uint8_t)(headCrc >> 8), (uint8_t)(headCrc & 0xFF) };
-    hexWriteBuf(hcrc_be, 2);
-
-    // 6) 发送 payload hex（如有）
+    // 4) 分块发送 payload（如有）
     if (payloadLen > 0 && payload) {
-        hexWriteBuf(payload, payloadLen);
-        // 7) 发送payload CRC（大端）
+        mipSendHex(payload, payloadLen);
+        // 5) 发送payload CRC（大端）
         uint8_t dcrc_be[2] = { (uint8_t)(dataCrc >> 8), (uint8_t)(dataCrc & 0xFF) };
-        hexWriteBuf(dcrc_be, 2);
+        mipSendHex(dcrc_be, 2);
     }
-
-    // 8) 结束符
-    Serial.write((const uint8_t*)"\r\n", 2);
 }
 
 void sendHeartbeat() {
