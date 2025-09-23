@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include "esp_camera.h"
+#include "config.h"
 
 void init_sd();
 void periodic_sd_check();
