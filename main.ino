@@ -8,8 +8,8 @@
 #include "capture_trigger.h"
 #include "camera_module.h"
 #include "sdcard_module.h"
-#include "sd_async.h"            // 新增：异步SD队列处理
-#include "flash_module.h"        // 新增：补光灯初始化
+#include "sd_async.h"
+#include "flash_module.h"
 #include <Preferences.h>
 
 volatile int g_monitorEventUploadFlag = 0;
@@ -31,6 +31,11 @@ unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50; // ms
 bool captureBusy = false;
 
+// 长按判定（非阻塞）
+static bool waitingForLongPress = false;
+static unsigned long buttonPressStartMs = 0;
+static const unsigned long LONG_PRESS_MS = 10000UL; // 10秒
+
 void setup() {
   Serial.begin(DTU_BAUD);
 #if ENABLE_LOG2
@@ -40,11 +45,12 @@ void setup() {
   Serial.println("==== System Boot ====");
   Serial.println("1. Initializing Camera...");
   bool camera_ok_local = init_camera_multi();
-  camera_ok = camera_ok_local; // 关键修复：同步全局状态，避免二次初始化
+  camera_ok = camera_ok_local;
   if (camera_ok_local) {
     Serial.println("Camera OK");
   } else {
     Serial.println("[ERR] Camera init failed!");
+    // 停在这里方便串口查看，不再反复重启
     while(1) delay(1000);
   }
 
@@ -62,7 +68,7 @@ void setup() {
   sd_async_start();
   sd_async_on_sd_ready();
 
-  // 初始化补光灯PWM，确保首次拍照可控
+  // 初始化补光灯PWM（使用不同于摄像头XCLK的LEDC定时器/通道，见config.h）
   flashInit();
 
   Serial.println("3. Loading config from NVS...");
@@ -77,12 +83,11 @@ void setup() {
   rtc_init();
   Serial.println("RTC init finish (valid after time sync)");
 
-  // 自检完成后先拍一张测试照（仅保存，不上传）
+  // 可选：上电自检拍一张（仅保存，不上传）
   Serial.println("5. Taking initial test photo (save only)...");
   bool prevSend = g_cfg.sendEnabled;
   bool prevAsync = g_cfg.asyncSDWrite;
-  g_cfg.sendEnabled = false;       // 只保存不上传
-  // 异步写保持开启，避免阻塞
+  g_cfg.sendEnabled = false; // 只保存不上传
   bool ok = capture_and_process(TRIGGER_BUTTON, false);
   g_cfg.sendEnabled = prevSend;
   g_cfg.asyncSDWrite = prevAsync;
@@ -110,22 +115,36 @@ void loop()
   if (reading != lastButtonState) {
     lastDebounceTime = millis();
   }
+
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    static int lastStableState = HIGH;
-    if (reading == LOW && lastStableState == HIGH && !captureBusy) {
-      captureBusy = true;
+    // 长按10秒非阻塞逻辑
+    if (reading == LOW) { // 低有效：被按下
+      if (!waitingForLongPress) {
+        waitingForLongPress = true;
+        buttonPressStartMs = millis();
+      } else {
+        if (!captureBusy && (millis() - buttonPressStartMs >= LONG_PRESS_MS)) {
+          captureBusy = true;
 #if ENABLE_LOG2
-      Serial2.println("[BTN] Button pressed, start capture!");
+          Serial2.println("[BTN] Button long-pressed (>10s), start capture!");
 #endif
-      bool ok = capture_and_process(TRIGGER_BUTTON, true);
+          bool ok = capture_and_process(TRIGGER_BUTTON, true);
 #if ENABLE_LOG2
-      if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
-      else Serial2.println("[BTN] Capture failed!");
+          if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
+          else Serial2.println("[BTN] Capture failed!");
 #endif
-      captureBusy = false;
+          captureBusy = false;
+          // 必须松手后再允许下一次
+          waitingForLongPress = false;
+          buttonPressStartMs = 0;
+        }
+      }
+    } else { // 松开
+      waitingForLongPress = false;
+      buttonPressStartMs = 0;
     }
-    lastStableState = reading;
   }
+
   lastButtonState = reading;
 
   // 只在未校时时每10秒提示一次

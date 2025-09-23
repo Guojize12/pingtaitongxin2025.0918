@@ -3,7 +3,7 @@
 #include "esp_camera.h"
 #include "config.h"
 
-bool try_camera_init_once(framesize_t size, int xclk, int q);
+//bool try_camera_init_once(framesize_t size, int xclk, int q);
 bool init_camera_multi();
 void deinit_camera_silent();
 bool discard_frames(int n);

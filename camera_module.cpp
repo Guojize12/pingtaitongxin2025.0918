@@ -13,55 +13,67 @@ static void tune_camera_sensor_defaults() {
     if (!s) return;
 
     // 基础画质
-    s->set_brightness(s, 1);          // [-2..2] 适度提亮
-    s->set_contrast(s, 1);            // [-2..2]
-    s->set_saturation(s, 1);          // [-2..2]
-    s->set_sharpness(s, 1);           // [-2..2] 轻微锐化
+    s->set_brightness(s, 1);
+    s->set_contrast(s, 1);
+    s->set_saturation(s, 1);
+    s->set_sharpness(s, 1);
 
     // 色彩与白平衡
-    s->set_whitebal(s, 1);            // 开启白平衡
-    s->set_awb_gain(s, 1);            // 允许AWB增益
-    // s->set_wb_mode(s, 0);          // 0=Auto，如需固定白平衡可改为1..4
+    s->set_whitebal(s, 1);
+    s->set_awb_gain(s, 1);
 
     // 曝光与增益
-    s->set_exposure_ctrl(s, 1);       // 自动曝光
-    s->set_aec2(s, 1);                // 高级AEC
-    s->set_ae_level(s, 0);            // 曝光偏置 [-2..2]
-    s->set_gain_ctrl(s, 1);           // 自动增益
-    s->set_gainceiling(s, (gainceiling_t)3); // 增益上限（适中）
+    s->set_exposure_ctrl(s, 1);
+    s->set_aec2(s, 1);
+    s->set_ae_level(s, 0);
+    s->set_gain_ctrl(s, 1);
+    s->set_gainceiling(s, (gainceiling_t)3);
 
     // 矫正与缩放
-    s->set_lenc(s, 1);                // 镜头阴影校正
-    s->set_dcw(s, 1);                 // 下采样优化（有助边缘与噪声）
-    s->set_raw_gma(s, 1);             // 伽马
-
-    // 方向（按需）
-    // s->set_hmirror(s, 0);
-    // s->set_vflip(s, 0);
+    s->set_lenc(s, 1);
+    s->set_dcw(s, 1);
+    s->set_raw_gma(s, 1);
 }
 
-camera_config_t make_config(framesize_t size, int xclk, int q) {
-    camera_config_t c;
+static camera_config_t make_config(framesize_t size, int xclk_hz, int jpeg_q) {
+    camera_config_t c = {};
+    // 专供摄像头XCLK的 LEDC 定时器/通道
     c.ledc_channel = LEDC_CHANNEL_0;
-    c.ledc_timer = LEDC_TIMER_0;
-    c.pin_d0 = Y2_GPIO; c.pin_d1 = Y3_GPIO; c.pin_d2 = Y4_GPIO; c.pin_d3 = Y5_GPIO;
-    c.pin_d4 = Y6_GPIO; c.pin_d5 = Y7_GPIO; c.pin_d6 = Y8_GPIO; c.pin_d7 = Y9_GPIO;
-    c.pin_xclk = XCLK_GPIO; c.pin_pclk = PCLK_GPIO; c.pin_vsync = VSYNC_GPIO;
-    c.pin_href = HREF_GPIO; c.pin_sscb_sda = SIOD_GPIO; c.pin_sscb_scl = SIOC_GPIO;
-    c.pin_pwdn = PWDN_GPIO; c.pin_reset = RESET_GPIO;
-    c.xclk_freq_hz = xclk;
+    c.ledc_timer   = LEDC_TIMER_0;
+
+    // 引脚映射（与 AI-Thinker ESP32-CAM 匹配）
+    c.pin_d0 = Y2_GPIO;  c.pin_d1 = Y3_GPIO;  c.pin_d2 = Y4_GPIO;  c.pin_d3 = Y5_GPIO;
+    c.pin_d4 = Y6_GPIO;  c.pin_d5 = Y7_GPIO;  c.pin_d6 = Y8_GPIO;  c.pin_d7 = Y9_GPIO;
+    c.pin_xclk = XCLK_GPIO;  c.pin_pclk = PCLK_GPIO;  c.pin_vsync = VSYNC_GPIO;
+    c.pin_href = HREF_GPIO;  c.pin_sscb_sda = SIOD_GPIO;  c.pin_sscb_scl = SIOC_GPIO;
+    c.pin_pwdn = PWDN_GPIO;  c.pin_reset = RESET_GPIO;
+
+    // 时钟与像素格式
+    c.xclk_freq_hz = xclk_hz;
     c.pixel_format = PIXFORMAT_JPEG;
+
+    // 抓帧与缓冲策略：显式设置，提升稳定性
+    c.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+    // 帧缓冲放PSRAM优先，且只用1个fb更稳
     if (psramFound()) {
-        c.frame_size = size; c.jpeg_quality = q; c.fb_count = 1;
+        c.fb_location = CAMERA_FB_IN_PSRAM;
+        c.frame_size  = size;
+        c.jpeg_quality = jpeg_q;
+        c.fb_count    = 1;
     } else {
-        c.frame_size = (size > FRAMESIZE_VGA ? FRAMESIZE_VGA : size);
-        c.jpeg_quality = q + 5; c.fb_count = 1;
+        c.fb_location = CAMERA_FB_IN_DRAM;
+        // 无PSRAM时强制不超过VGA
+        if (size > FRAMESIZE_VGA) size = FRAMESIZE_VGA;
+        c.frame_size  = size;
+        c.jpeg_quality = jpeg_q + 4; // 提高数值=更高压缩、更省内存
+        c.fb_count    = 1;
     }
     return c;
 }
 
-bool try_camera_init_once(framesize_t size, int xclk, int q) {
-    camera_config_t cfg = make_config(size, xclk, q);
+static bool try_camera_init_once(framesize_t size, int xclk_hz, int jpeg_q) {
+    camera_config_t cfg = make_config(size, xclk_hz, jpeg_q);
     esp_err_t err = esp_camera_init(&cfg);
     if (err == ESP_OK) {
         tune_camera_sensor_defaults();
@@ -71,24 +83,34 @@ bool try_camera_init_once(framesize_t size, int xclk, int q) {
 }
 
 bool init_camera_multi() {
-    camera_ok = false; // 开始前先置为false
-    pinMode(PWDN_GPIO, OUTPUT); digitalWrite(PWDN_GPIO, LOW); delay(30);
+    camera_ok = false;
 
-    // 优先档
-    for (int i = 0; i < INIT_RETRY_PER_CONFIG; i++) {
-        if (try_camera_init_once(FRAME_SIZE_PREF, 20000000, JPEG_QUALITY_PREF)) {
-            camera_ok = true;
-            // 上电后适当丢帧，促使AWB/AE收敛
-            discard_frames(DISCARD_FRAMES_ON_START);
-            return true;
-        }
+    // 上电时序：先掉电（HIGH），再上电（LOW），留出稳定时间
+    if (PWDN_GPIO >= 0) {
+        pinMode(PWDN_GPIO, OUTPUT);
+        digitalWrite(PWDN_GPIO, HIGH);
+        delay(120);
+        digitalWrite(PWDN_GPIO, LOW);
+        delay(120);
+    } else {
         delay(120);
     }
 
-    // 降级档
-    esp_camera_deinit(); delay(60);
-    for (int i = 0; i < INIT_RETRY_PER_CONFIG; i++) {
-        if (try_camera_init_once(FRAME_SIZE_FALLBACK, 10000000, JPEG_QUALITY_FALLBACK)) {
+    // 尽量保守的首选：VGA + 10MHz XCLK + 较高jpeg质量值(更小数据)
+    for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
+        if (try_camera_init_once(FRAMESIZE_VGA, 10000000, JPEG_QUALITY_FALLBACK)) {
+            camera_ok = true;
+            // 上电后适当丢帧收敛（此时驱动已稳定）
+            discard_frames(DISCARD_FRAMES_ON_START);
+            return true;
+        }
+        delay(150);
+    }
+
+    // 次级尝试：你偏好的分辨率（可能是SVGA）+ 10MHz
+    esp_camera_deinit(); delay(80);
+    for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
+        if (try_camera_init_once(FRAME_SIZE_PREF, 10000000, JPEG_QUALITY_PREF)) {
             camera_ok = true;
             discard_frames(DISCARD_FRAMES_ON_START);
             return true;
@@ -96,6 +118,29 @@ bool init_camera_multi() {
         delay(150);
     }
 
+    // 再次尝试：偏好分辨率 + 20MHz（若硬件允许）
+    esp_camera_deinit(); delay(80);
+    for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
+        if (try_camera_init_once(FRAME_SIZE_PREF, 20000000, JPEG_QUALITY_PREF)) {
+            camera_ok = true;
+            discard_frames(DISCARD_FRAMES_ON_START);
+            return true;
+        }
+        delay(150);
+    }
+
+    // 最后兜底：QVGA + 10MHz
+    esp_camera_deinit(); delay(80);
+    for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
+        if (try_camera_init_once(FRAMESIZE_QVGA, 10000000, JPEG_QUALITY_FALLBACK + 2)) {
+            camera_ok = true;
+            discard_frames(DISCARD_FRAMES_ON_START);
+            return true;
+        }
+        delay(150);
+    }
+
+    // 全部失败
     esp_camera_deinit();
     camera_ok = false;
     return false;
@@ -114,14 +159,14 @@ bool discard_frames(int n) {
 
 bool reinit_camera_with_params(framesize_t size, int quality) {
     deinit_camera_silent();
-    camera_config_t cfg = make_config(size, 20000000, quality);
+    camera_config_t cfg = make_config(size, 10000000, quality);
     if (esp_camera_init(&cfg) == ESP_OK) {
         tune_camera_sensor_defaults();
         camera_ok = true;
         return true;
     }
     deinit_camera_silent();
-    cfg = make_config(size, 10000000, quality + 2);
+    cfg = make_config(size, 20000000, quality + 2);
     if (esp_camera_init(&cfg) == ESP_OK) {
         tune_camera_sensor_defaults();
         camera_ok = true;
