@@ -3,6 +3,9 @@
 #include <Preferences.h>
 #include "esp_camera.h"
 
+// 新增：最后一张照片的文件名（供上传用）
+extern char g_lastPhotoName[64];
+
 // 新增参数：是否上传
 bool capture_and_process(uint8_t trigger, bool upload);
 

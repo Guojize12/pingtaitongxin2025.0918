@@ -7,7 +7,7 @@
 // 头部固定长度
 static const uint16_t PLATFORM_HEADER_LEN = 21;
 
-// 构建数据包：头(21) + 头CRC(2,大端) + [payload] + [payloadCRC(2,大端)]
+// 保留原构建函数（小包可用）；大包发送走流式发送
 size_t build_platform_packet(uint8_t* out,
                              char opType,
                              uint16_t cmd,
@@ -43,52 +43,73 @@ size_t build_platform_packet(uint8_t* out,
     return offset;
 }
 
-// 发送（HEX封装）
+// HEX输出辅助
+static inline void hexByte(uint8_t b) {
+    static const char* HEXCHARS = "0123456789ABCDEF";
+    char tmp[2];
+    tmp[0] = HEXCHARS[(b >> 4) & 0x0F];
+    tmp[1] = HEXCHARS[b & 0x0F];
+    Serial.write((const uint8_t*)tmp, 2);
+}
+
+static void hexWriteBuf(const uint8_t* data, size_t len) {
+    for (size_t i = 0; i < len; ++i) hexByte(data[i]);
+}
+
+// 流式发送平台数据包：避免巨大临时缓冲，支持大payload（≤65K）
 void sendPlatformPacket(char opType,
                         uint16_t cmd,
                         uint8_t pid,
                         const uint8_t* payload,
                         uint16_t payloadLen)
 {
-    uint8_t pkt[256];
-    size_t n = build_platform_packet(pkt, opType, cmd, pid, payload, payloadLen);
-    static const char* HEXCHARS = "0123456789ABCDEF";
+    // 1) 组装头部（不含头CRC）
+    uint8_t header[PLATFORM_HEADER_LEN];
+    header[0]  = '$';
+    header[1]  = (uint8_t)opType;
+    header[2]  = (uint8_t)(payloadLen >> 8);
+    header[3]  = (uint8_t)(payloadLen & 0xFF);
+    for (int i = 0; i < 12; ++i) header[4 + i] = (uint8_t)g_device_sn[i];
+    header[16] = PLATFORM_VER;
+    header[17] = (uint8_t)(cmd >> 8);
+    header[18] = (uint8_t)(cmd & 0xFF);
+    header[19] = PLATFORM_DMODEL;
+    header[20] = pid;
 
-    // 构造 AT 命令
-    static char buf[600];
-    size_t pos = 0;
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "AT+MIPSEND=0,0,");
-
-    for (size_t i = 0; i < n; ++i) {
-        uint8_t b = pkt[i];
-        buf[pos++] = HEXCHARS[(b >> 4) & 0x0F];
-        buf[pos++] = HEXCHARS[b & 0x0F];
+    // 2) 计算CRC
+    uint16_t headCrc = crc16_modbus(header, PLATFORM_HEADER_LEN);
+    uint16_t dataCrc = 0;
+    if (payloadLen > 0 && payload) {
+        dataCrc = crc16_modbus(payload, payloadLen);
     }
-    buf[pos++] = '\r';
-    buf[pos++] = '\n';
-    buf[pos] = '\0';
 
-#if ENABLE_LOG2
-    Serial2.print("[UART0 TX PlatformPkt HEX] ");
-    for (size_t i = 0; i < n; ++i) {
-        if (pkt[i] < 16) Serial2.print("0");
-        Serial2.print(pkt[i], HEX);
-        Serial2.print(" ");
+    // 3) 构造 AT 命令前缀
+    Serial.write((const uint8_t*)"AT+MIPSEND=0,0,", 15);
+
+    // 4) 发送 header hex
+    hexWriteBuf(header, PLATFORM_HEADER_LEN);
+
+    // 5) 发送头CRC（大端）
+    uint8_t hcrc_be[2] = { (uint8_t)(headCrc >> 8), (uint8_t)(headCrc & 0xFF) };
+    hexWriteBuf(hcrc_be, 2);
+
+    // 6) 发送 payload hex（如有）
+    if (payloadLen > 0 && payload) {
+        hexWriteBuf(payload, payloadLen);
+        // 7) 发送payload CRC（大端）
+        uint8_t dcrc_be[2] = { (uint8_t)(dataCrc >> 8), (uint8_t)(dataCrc & 0xFF) };
+        hexWriteBuf(dcrc_be, 2);
     }
-    Serial2.println();
-    Serial2.print("Send PlatformPkt len=");
-    Serial2.println((int)n);
-#endif
 
-    Serial.write((const uint8_t*)buf, pos);
+    // 8) 结束符
+    Serial.write((const uint8_t*)"\r\n", 2);
 }
 
-// ...其余函数无Serial2输出，不变
 void sendHeartbeat() {
     sendPlatformPacket('R', CMD_HEARTBEAT_REQ, 0, nullptr, 0);
 }
 
-// year字段2字节，高位在前，payload长度15
+// year字段2字节，高位在前，payload长度14
 void sendRealtimeMonitorData(
     uint16_t year,
     uint8_t month,
@@ -143,12 +164,12 @@ void sendMonitorEventUpload(
     payload[7] = triggerCond;
     memcpy(payload + 8, &realtimeValue, 4);
     memcpy(payload + 12, &thresholdValue, 4);
-    // ---- 这里改为大端序 ----
+    // ---- 大端序的imageLen ----
     payload[16] = (uint8_t)((imageLen >> 24) & 0xFF);
     payload[17] = (uint8_t)((imageLen >> 16) & 0xFF);
     payload[18] = (uint8_t)((imageLen >> 8) & 0xFF);
     payload[19] = (uint8_t)(imageLen & 0xFF);
-    // -----------------------
+    // -------------------------
     if (imageLen > 0 && imageData) {
         memcpy(payload + 20, imageData, imageLen);
     }

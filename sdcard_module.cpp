@@ -61,3 +61,40 @@ bool save_frame_to_sd_raw(const uint8_t* data, size_t len, uint32_t index) {
     f.close();
     return w == len;
 }
+
+// 新增：保存并返回实际文件名（时间命名）
+bool save_frame_to_sd_with_name(camera_fb_t* fb, char* outFile, size_t outFileSize) {
+    if (!fb) return false;
+    if (!outFile || outFileSize < 4) return false;
+
+    char name[64];
+    make_photo_name(name, sizeof(name));
+
+    bool ok = false;
+    if (g_cfg.asyncSDWrite) {
+        // 异步入队（写线程会逐块写入），此处立即返回true
+        ok = sd_async_submit(name, fb->buf, fb->len);
+        if (!ok) {
+            // 回退同步写
+            File f = SD.open(name, FILE_WRITE);
+            if (f) {
+                size_t w = f.write(fb->buf, fb->len);
+                f.close();
+                ok = (w == fb->len);
+            }
+        }
+    } else {
+        File f = SD.open(name, FILE_WRITE);
+        if (f) {
+            size_t w = f.write(fb->buf, fb->len);
+            f.close();
+            ok = (w == fb->len);
+        }
+    }
+
+    if (ok) {
+        strncpy(outFile, name, outFileSize - 1);
+        outFile[outFileSize - 1] = '\0';
+    }
+    return ok;
+}
