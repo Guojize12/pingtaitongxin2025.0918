@@ -16,17 +16,45 @@ static bool tcpConnected = false;
 // === 定时请求时间同步相关变量 ===
 static uint32_t lastTimeSyncReqMs = 0;
 
+// === 非阻塞退避调度 ===
+enum NextAction { ACT_NONE, ACT_AT_PING, ACT_CEREG, ACT_OPEN_TCP };
+static uint32_t retryNotBeforeMs = 0;
+static bool waitingForRetry = false;
+static NextAction nextAction = ACT_NONE;
+
 // ================== 工具函数 ==================
 static String trimLine(const char* s) { String t = s; t.trim(); return t; }
 static bool lineHas(const char* line, const char* token) { return (strstr(line, token) != nullptr); }
 
 void scheduleStatePoll() { nextStatePollMs = millis() + STATE_POLL_MS; }
-void comm_resetBackoff() { backoffMs = 2000; }
+void comm_resetBackoff() { backoffMs = 2000; waitingForRetry = false; nextAction = ACT_NONE; }
 
 static void growBackoff() {
     uint32_t n = backoffMs * 2;
     if (n > BACKOFF_MAX_MS) n = BACKOFF_MAX_MS;
     backoffMs = n;
+}
+
+static void scheduleRetry(NextAction act) {
+    uint32_t now = millis();
+    growBackoff();
+    retryNotBeforeMs = now + backoffMs;
+    waitingForRetry = true;
+    nextAction = act;
+}
+
+static void tryFireScheduled(uint32_t now) {
+    if (!waitingForRetry) return;
+    if (now < retryNotBeforeMs) return;
+    waitingForRetry = false;
+    NextAction act = nextAction;
+    nextAction = ACT_NONE;
+    switch (act) {
+        case ACT_AT_PING:  startATPing(); break;
+        case ACT_CEREG:    queryCEREG();  break;
+        case ACT_OPEN_TCP: openTCP();     break;
+        default: break;
+    }
 }
 
 void comm_gotoStep(Step s) {
@@ -36,9 +64,8 @@ void comm_gotoStep(Step s) {
 
 // ================== 各状态处理函数 ==================
 static void handleStepIdle() {
+    // 清晰的顺序：先等模块 +MATREADY，再开始 AT
     comm_gotoStep(STEP_WAIT_READY);
-    actionStartMs = millis();
-    startATPing();
 }
 
 static void handleStepWaitReady(const String& line) {
@@ -93,23 +120,25 @@ static void handleStepMipopen(const String& line) {
             log2("TCP connected");
             tcpConnected = true;
             comm_resetBackoff();
-            lastHeartbeatMs = millis();
-            lastTimeSyncReqMs = millis() - TIME_SYNC_INTERVAL_MS; // 立即触发
+            uint32_t now = millis();
+            lastHeartbeatMs = now;
+            // 建链成功后延迟几秒再发时间同步，避免一上来就挤占通道
+            if (TIME_SYNC_INTERVAL_MS > 5000) {
+                lastTimeSyncReqMs = now - TIME_SYNC_INTERVAL_MS + 5000;
+            } else {
+                lastTimeSyncReqMs = now; // 容错
+            }
             comm_gotoStep(STEP_MONITOR);
             scheduleStatePoll();
         } else {
             log2("TCP open failed");
             tcpConnected = false;
-            growBackoff();
-            delay(backoffMs);
-            openTCP();
+            scheduleRetry(ACT_OPEN_TCP);
         }
     } else if (lineHas(line.c_str(), "ERROR")) {
         log2("TCP open ERROR");
         tcpConnected = false;
-        growBackoff();
-        delay(backoffMs);
-        openTCP();
+        scheduleRetry(ACT_OPEN_TCP);
     }
 }
 
@@ -120,9 +149,7 @@ static void handleStepMonitor(const String& line) {
         } else {
             log2("TCP disconnected");
             tcpConnected = false;
-            growBackoff();
-            delay(backoffMs);
-            openTCP();
+            scheduleRetry(ACT_OPEN_TCP);
         }
     }
 }
@@ -131,9 +158,7 @@ static void handleDisconnEvent(const String& line) {
     if (lineHas(line.c_str(), "+MIPURC") && lineHas(line.c_str(), "\"disconn\"")) {
         tcpConnected = false;
         log2("TCP disconnected");
-        growBackoff();
-        delay(backoffMs);
-        openTCP();
+        scheduleRetry(ACT_OPEN_TCP);
     }
 }
 
@@ -177,24 +202,30 @@ static void handleLine(const char* rawLine) {
 void comm_drive() {
     uint32_t now = millis();
 
+    // 先检查是否有“到点重试”的动作
+    tryFireScheduled(now);
+
     switch (step) {
         case STEP_IDLE:
             handleStepIdle();
             break;
 
+        case STEP_WAIT_READY:
+            // 等 MATREADY 太久，则主动发 AT 探活
+            if (now - actionStartMs > AT_TIMEOUT_MS) {
+                startATPing();
+            }
+            break;
+
         case STEP_AT_PING:
             if (now - actionStartMs > AT_TIMEOUT_MS) {
-                growBackoff();
-                delay(backoffMs);
-                startATPing();
+                scheduleRetry(ACT_AT_PING);
             }
             break;
 
         case STEP_CEREG:
             if (now - actionStartMs > REG_TIMEOUT_MS) {
-                growBackoff();
-                delay(backoffMs);
-                queryCEREG();
+                scheduleRetry(ACT_CEREG);
             }
             break;
 
@@ -213,9 +244,7 @@ void comm_drive() {
         case STEP_MIPOPEN:
             if (now - actionStartMs > OPEN_TIMEOUT_MS) {
                 tcpConnected = false;
-                growBackoff();
-                delay(backoffMs);
-                openTCP();
+                scheduleRetry(ACT_OPEN_TCP);
             }
             break;
 
@@ -225,7 +254,7 @@ void comm_drive() {
                 scheduleStatePoll();
             }
             sendHeartbeatIfNeeded(now);
-            sendTimeSyncIfNeeded(now); // 定时请求时间同步
+            sendTimeSyncIfNeeded(now);
             break;
         }
         default:

@@ -8,6 +8,7 @@
 #include <FS.h>
 #include <SD.h>
 #include "camera_module.h"
+#include "capture_trigger.h"
 
 // 定时上传的计时器
 static uint32_t lastRealtimeUploadMs = 0;
@@ -25,6 +26,26 @@ extern volatile uint8_t g_waterSensorStatus;
 static bool g_startupReported = false;
 
 static bool g_simInfoUploaded = false;
+
+// 进水拍照上传定时器
+static uint32_t lastWaterPhotoUploadMs = 0;
+static bool lastWaterActive = false;
+
+// 进水状态下定时拍照上传
+static void water_auto_capture_upload_if_needed(uint32_t now) {
+    if (g_waterSensorStatus == 1) {
+        if (!lastWaterActive || now - lastWaterPhotoUploadMs >= 600000UL) { // 10分钟
+            bool ok = capture_and_process(TRIGGER_BUTTON, true);
+            // 即使拍照失败也更新时间戳，避免死循环
+            lastWaterPhotoUploadMs = now;
+        }
+        lastWaterActive = true;
+    } else {
+        // 离开进水状态，重置
+        lastWaterPhotoUploadMs = now;
+        lastWaterActive = false;
+    }
+}
 
 static void uploadSimInfoIfNeeded() {
     if (g_simInfoUploaded) return;
@@ -198,4 +219,5 @@ void upload_drive() {
     uploadSimInfoIfNeeded();           // SIM卡状态上报
     uploadRealtimeDataIfNeeded(now);   // 实时数据上报
     uploadMonitorEventIfNeeded();      // 事件图片上传
+    water_auto_capture_upload_if_needed(now); // <--- 新增进水定时拍照上传
 }

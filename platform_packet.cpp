@@ -8,7 +8,6 @@
 static const uint16_t PLATFORM_HEADER_LEN = 21;
 
 // 每次 MIPSEND 发送的二进制字节数上限（将被转成 2x HEX 字符）
-// 取 512 字节更容易满足多数模组单行长度限制
 static const size_t MIPSEND_BIN_CHUNK = 128;
 
 // 保留原构建函数（小包可用）；大包发送走流式发送
@@ -188,24 +187,7 @@ void sendMonitorEventUpload(
     }
     sendPlatformPacket('R', 0x1d09, 0, payload, (uint16_t)totalLen);
 
-    // ===== 新增：上传内容串口HEX打印 =====
-    size_t pktLen = 21 + 2 + totalLen + (totalLen > 0 ? 2 : 0);
-    uint8_t* pkt = (uint8_t*)malloc(pktLen);
-    if (pkt) {
-        size_t n = build_platform_packet(pkt, 'R', 0x1d09, 0, payload, (uint16_t)totalLen);
-        // 打印HEX，每字节空格，每100字节换行
-        for (size_t i = 0; i < n; ++i) {
-            if (i > 0) Serial.print(' ');
-            if (i > 0 && (i % 50 == 0)) Serial.println();
-            uint8_t b = pkt[i];
-            if (b < 16) Serial.print('0');
-            Serial.print(b, HEX);
-        }
-        Serial.println();
-        free(pkt);
-    }
-    // ===== END =====
-
+    // 按你的要求：不再打印任何HEX调试
     free(payload);
 }
 

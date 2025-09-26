@@ -33,5 +33,5 @@ void openTCP() {
 
 void pollMIPSTATE() {
   sendCmd("AT+MIPSTATE=0");
-  scheduleStatePoll();
+  // 去重：不再在这里 scheduleStatePoll，由 comm_manager 统一调度
 }
