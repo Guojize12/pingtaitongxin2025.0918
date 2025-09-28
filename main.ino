@@ -12,7 +12,7 @@
 #include "flash_module.h"
 #include <Preferences.h>
 
-volatile int g_monitorEventUploadFlag = 0;
+volatile int g_monitorEventUploadFlag = -1;  // 修复：-1 表示无事件
 unsigned long lastRtcPrint = 0;
 
 RuntimeConfig g_cfg = {true, true, true};

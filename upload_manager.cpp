@@ -188,7 +188,10 @@ static void uploadMonitorEventIfNeeded() {
     if (!rtc_is_valid()) {
         return;
     }
-    if (g_monitorEventUploadFlag != 1 && g_monitorEventUploadFlag != 0) return;
+
+    // 修复：只在 flag 为 0 或 1 时上传；-1 表示无事件
+    int flag = g_monitorEventUploadFlag;
+    if (flag != 0 && flag != 1) return;
 
     // 读取图片数据
     size_t imgLen = 0;
@@ -201,7 +204,7 @@ static void uploadMonitorEventIfNeeded() {
     PlatformTime t;
     rtc_now_fields(&t);
 
-    uint8_t triggerCond = g_monitorEventUploadFlag; // 0=上电拍照，1=进水报警
+    uint8_t triggerCond = (uint8_t)flag; // 0=上电拍照，1=进水报警
     float realtimeValue = 0.0f;
     float thresholdValue = 0.0f;
 
@@ -219,7 +222,8 @@ static void uploadMonitorEventIfNeeded() {
         );
     }
 
-    g_monitorEventUploadFlag = 0;
+    // 修复：上传完成后清为“无事件”
+    g_monitorEventUploadFlag = -1;
 }
 
 void upload_drive() {
