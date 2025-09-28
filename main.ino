@@ -39,6 +39,9 @@ static const unsigned long LONG_PRESS_MS = 10000UL; // 10秒
 // 新增：全局水浸传感器“报警”状态（0=正常，1=报警）
 volatile uint8_t g_waterSensorStatus = 0;
 
+// 新增：进入“持续按住”模式的起始毫秒时间（供10分钟周期拍照使用）
+volatile uint32_t g_waterHoldStartMs = 0;
+
 void setup() {
   Serial.begin(DTU_BAUD);
 #if ENABLE_LOG2
@@ -53,7 +56,6 @@ void setup() {
     Serial.println("Camera OK");
   } else {
     Serial.println("[ERR] Camera init failed!");
-    // 停在这里方便串口查看，不再反复重启
     while(1) delay(1000);
   }
 
@@ -71,7 +73,7 @@ void setup() {
   sd_async_start();
   sd_async_on_sd_ready();
 
-  // 初始化补光灯PWM（使用不同于摄像头XCLK的LEDC定时器/通道，见config.h）
+  // 初始化补光灯PWM
   flashInit();
 
   Serial.println("3. Loading config from NVS...");
@@ -86,19 +88,9 @@ void setup() {
   rtc_init();
   Serial.println("RTC init finish (valid after time sync)");
 
-  // 可选：上电自检拍一张（仅保存，不上传）
-  Serial.println("5. Taking initial test photo (save only)...");
-  bool prevSend = g_cfg.sendEnabled;
-  bool prevAsync = g_cfg.asyncSDWrite;
-  g_cfg.sendEnabled = false; // 只保存不上传
-  bool ok = capture_and_process(TRIGGER_BUTTON, false);
-  g_cfg.sendEnabled = prevSend;
-  g_cfg.asyncSDWrite = prevAsync;
-  if (ok) {
-    Serial.println("Initial photo captured and saved to SD.");
-  } else {
-    Serial.println("[ERR] Initial photo capture or save failed!");
-  }
+  // 注意：原来这里会“上电自检拍一张（只保存不上传）”，
+  // 现在按需求改为：联通且校时有效后，再由 upload_manager 触发“上电拍照事件(触发条件=0)”
+  Serial.println("Skip immediate boot photo; will capture after connection and time sync.");
 
   Serial.println("All hardware OK, ready to start platform connection...");
 
@@ -120,35 +112,49 @@ void loop()
   }
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    // 长按10秒非阻塞逻辑
-    if (reading == LOW) { // 低有效：被按下
-      if (!waitingForLongPress) {
-        waitingForLongPress = true;
-        buttonPressStartMs = millis();
-      } else {
-        if (!captureBusy && (millis() - buttonPressStartMs >= LONG_PRESS_MS)) {
-          captureBusy = true;
+    // 若已处于“持续按住”模式（即已经完成一次10秒长按触发），
+    // 则本地长按判定逻辑直接跳过，避免再次计时造成10秒后又拍一次。
+    if (g_waterSensorStatus != 1) {
+      // 长按10秒非阻塞逻辑
+      if (reading == LOW) { // 低有效：被按下
+        if (!waitingForLongPress) {
+          waitingForLongPress = true;
+          buttonPressStartMs = millis();
+        } else {
+          if (!captureBusy && (millis() - buttonPressStartMs >= LONG_PRESS_MS)) {
+            captureBusy = true;
 #if ENABLE_LOG2
-          Serial2.println("[BTN] Button long-pressed (>10s), start capture!");
+            Serial2.println("[BTN] Button long-pressed (>10s), start capture!");
 #endif
-          bool ok = capture_and_process(TRIGGER_BUTTON, true);
+            bool ok = capture_and_process(TRIGGER_BUTTON, true); // 事件=进水(1)
 #if ENABLE_LOG2
-          if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
-          else Serial2.println("[BTN] Capture failed!");
+            if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
+            else Serial2.println("[BTN] Capture failed!");
 #endif
-          // 新增：长按超过10秒，进入“报警”状态
-          g_waterSensorStatus = 1;
-          captureBusy = false;
-          // 必须松手后再允许下一次
-          waitingForLongPress = false;
-          buttonPressStartMs = 0;
+            // 进入“持续按住”模式
+            g_waterSensorStatus = 1;
+            g_waterHoldStartMs = millis(); // 从现在开始计10分钟
+            captureBusy = false;
+            // 不再在未抬起的情况下重新计10秒
+            waitingForLongPress = false;
+            buttonPressStartMs = 0;
+          }
         }
+      } else { // 松开
+        waitingForLongPress = false;
+        buttonPressStartMs = 0;
+        // 松手时清零“报警/持续按住”状态
+        g_waterSensorStatus = 0;
+        g_waterHoldStartMs = 0;
       }
-    } else { // 松开
-      waitingForLongPress = false;
-      buttonPressStartMs = 0;
-      // 松手时清零“报警”状态
-      g_waterSensorStatus = 0;
+    } else {
+      // 已处于持续按住模式：监测抬起即可
+      if (reading == HIGH) {
+        waitingForLongPress = false;
+        buttonPressStartMs = 0;
+        g_waterSensorStatus = 0;
+        g_waterHoldStartMs = 0;
+      }
     }
   }
 
@@ -161,4 +167,5 @@ void loop()
     Serial2.println("[RTC] Not valid yet.");
 #endif
   }
+
 }
