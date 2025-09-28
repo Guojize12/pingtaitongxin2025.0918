@@ -19,13 +19,14 @@ extern volatile int g_monitorEventUploadFlag;
 // 最后一张照片文件名（由 capture_trigger 维护）
 extern char g_lastPhotoName[64];
 
-// 新增：来自 main.ino 的水浸报警全局变量
+// 来自 main.ino 的水浸报警全局变量与“持续按住”起始时间
 extern volatile uint8_t g_waterSensorStatus;
+extern volatile uint32_t g_waterHoldStartMs;
 
-// ============ 新增：只上报一次开机状态 ============
+// ============ 只上报一次开机状态 ============
 static bool g_startupReported = false;
 
-// 新增：只上传一次“上电拍照事件”
+// 只上传一次“上电拍照事件”
 static bool g_startupPhotoUploaded = false;
 
 static bool g_simInfoUploaded = false;
@@ -34,19 +35,24 @@ static bool g_simInfoUploaded = false;
 static uint32_t lastWaterPhotoUploadMs = 0;
 static bool lastWaterActive = false;
 
-// 进水状态下定时拍照上传
+// 进水状态下定时拍照上传（进入持续按住模式当次不立刻再拍）
+// 需求：长按触发拍照一次；持续按住后每10分钟再拍一次；松手结束周期
 static void water_auto_capture_upload_if_needed(uint32_t now) {
     if (g_waterSensorStatus == 1) {
-        if (!lastWaterActive || now - lastWaterPhotoUploadMs >= 600000UL) { // 10分钟
-            bool ok = capture_and_process(TRIGGER_BUTTON, true, 1); // 1: 进水报警事件
-            // 即使拍照失败也更新时间戳，避免死循环
+        if (!lastWaterActive) {
+            // 刚进入“持续按住”模式：不立即拍，起始对齐为长按触发时刻
+            lastWaterActive = true;
+            lastWaterPhotoUploadMs = (g_waterHoldStartMs != 0) ? g_waterHoldStartMs : now;
+            return;
+        }
+        if (now - lastWaterPhotoUploadMs >= 600000UL) { // 10分钟
+            (void)capture_and_process(TRIGGER_BUTTON, true, 1); // 1: 进水报警事件
             lastWaterPhotoUploadMs = now;
         }
-        lastWaterActive = true;
     } else {
         // 离开进水状态，重置
-        lastWaterPhotoUploadMs = now;
         lastWaterActive = false;
+        lastWaterPhotoUploadMs = 0;
     }
 }
 
@@ -100,7 +106,7 @@ static void uploadStartupStatusIfNeeded() {
     g_startupReported = true;
 }
 
-// 新增：联通并校时后，拍一次“上电拍照”并作为事件上传（触发条件=0）
+// 联通并校时后，拍一次“上电拍照”并作为事件上传（触发条件=0）
 static void uploadStartupPhotoIfNeeded() {
     if (g_startupPhotoUploaded) return;
     if (!comm_isConnected()) return;
@@ -189,7 +195,7 @@ static void uploadMonitorEventIfNeeded() {
         return;
     }
 
-    // 修复：只在 flag 为 0 或 1 时上传；-1 表示无事件
+    // 只在 flag 为 0 或 1 时上传；-1 表示无事件
     int flag = g_monitorEventUploadFlag;
     if (flag != 0 && flag != 1) return;
 
@@ -222,7 +228,7 @@ static void uploadMonitorEventIfNeeded() {
         );
     }
 
-    // 修复：上传完成后清为“无事件”
+    // 上传完成后清为“无事件”
     g_monitorEventUploadFlag = -1;
 }
 
@@ -233,5 +239,5 @@ void upload_drive() {
     uploadStartupPhotoIfNeeded();      // 上电拍照事件（触发条件=0）
     uploadRealtimeDataIfNeeded(now);   // 实时数据上报
     uploadMonitorEventIfNeeded();      // 事件图片上传
-    water_auto_capture_upload_if_needed(now); // 进水定时拍照上传
+    water_auto_capture_upload_if_needed(now); // 进水定时拍照上传（10分钟周期）
 }
