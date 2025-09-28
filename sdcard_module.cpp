@@ -32,14 +32,15 @@ static void make_photo_name(char* out, size_t outSize) {
     s_photo_counter++;
 }
 
-bool save_frame_to_sd(camera_fb_t *fb, uint32_t /*index*/) {
+bool save_frame_to_sd(camera_fb_t *fb, uint32_t index) {
     if (!fb) return false;
-    // 语义收敛：直接调用 with_name，避免重复生成名字/误导
-    char tmp[64];
-    return save_frame_to_sd_with_name(fb, tmp, sizeof(tmp));
+    // 忽略传入index，使用自带唯一命名
+    char name[64];
+    make_photo_name(name, sizeof(name));
+    return save_frame_to_sd_raw(fb->buf, fb->len, index); // 内部会重新计算文件名
 }
 
-bool save_frame_to_sd_raw(const uint8_t* data, size_t len, uint32_t /*index*/) {
+bool save_frame_to_sd_raw(const uint8_t* data, size_t len, uint32_t index) {
     if (SD.cardType() == CARD_NONE) return false;
 
     char name[64];

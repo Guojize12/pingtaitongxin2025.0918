@@ -41,9 +41,6 @@ static const size_t LINE_BUF_MAX = 512;
 
 extern volatile int g_monitorEventUploadFlag;
 
-// 新增：长按后进入“持续按住”模式的起始时间戳（ms），用于10分钟周期拍照
-extern volatile uint32_t g_waterHoldStartMs;
-
 #define SW_VER_HIGH  1
 #define SW_VER_MID   1
 #define SW_VER_LOW   1
@@ -217,5 +214,4 @@ extern bool g_debugMode;
 
 // 占位失败处理函数
 inline void handle_camera_failure() {}
-
 inline void handle_sd_failure() {}
