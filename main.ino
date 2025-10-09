@@ -36,8 +36,10 @@ static bool waitingForLongPress = false;
 static unsigned long buttonPressStartMs = 0;
 static const unsigned long LONG_PRESS_MS = 10000UL; // 10秒
 
-// 新增：全局水浸传感器“报警”状态（0=正常，1=报警）
+// 全局水浸传感器“报警/持续按住”状态（0=正常，1=持续按住）
 volatile uint8_t g_waterSensorStatus = 0;
+// 持续按住模式起始时间（用于10分钟周期对齐）
+volatile uint32_t g_waterHoldStartMs = 0;
 
 void setup() {
   Serial.begin(DTU_BAUD);
@@ -53,7 +55,6 @@ void setup() {
     Serial.println("Camera OK");
   } else {
     Serial.println("[ERR] Camera init failed!");
-    // 停在这里方便串口查看，不再反复重启
     while(1) delay(1000);
   }
 
@@ -71,7 +72,7 @@ void setup() {
   sd_async_start();
   sd_async_on_sd_ready();
 
-  // 初始化补光灯PWM（使用不同于摄像头XCLK的LEDC定时器/通道，见config.h）
+  // 初始化补光灯PWM
   flashInit();
 
   Serial.println("3. Loading config from NVS...");
@@ -86,19 +87,14 @@ void setup() {
   rtc_init();
   Serial.println("RTC init finish (valid after time sync)");
 
-  // 可选：上电自检拍一张（仅保存，不上传）
+  // 可选：上电自检只保存一张
   Serial.println("5. Taking initial test photo (save only)...");
   bool prevSend = g_cfg.sendEnabled;
   bool prevAsync = g_cfg.asyncSDWrite;
-  g_cfg.sendEnabled = false; // 只保存不上传
-  bool ok = capture_and_process(TRIGGER_BUTTON, false);
+  g_cfg.sendEnabled = false;
+  (void)capture_and_process(TRIGGER_BUTTON, false);
   g_cfg.sendEnabled = prevSend;
   g_cfg.asyncSDWrite = prevAsync;
-  if (ok) {
-    Serial.println("Initial photo captured and saved to SD.");
-  } else {
-    Serial.println("[ERR] Initial photo capture or save failed!");
-  }
 
   Serial.println("All hardware OK, ready to start platform connection...");
 
@@ -120,41 +116,50 @@ void loop()
   }
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    // 长按10秒非阻塞逻辑
-    if (reading == LOW) { // 低有效：被按下
-      if (!waitingForLongPress) {
-        waitingForLongPress = true;
-        buttonPressStartMs = millis();
+    if (reading == LOW) { // 被按下（低有效）
+      if (g_waterSensorStatus == 1) {
+        // 已处于“持续按住”模式：不重新计时，不触发新的10秒长按
+        waitingForLongPress = false; // 防止误触发二次计时
+        // 保持 g_waterHoldStartMs 不变，由上传层每10分钟拍一次
       } else {
-        if (!captureBusy && (millis() - buttonPressStartMs >= LONG_PRESS_MS)) {
-          captureBusy = true;
+        // 未处于“持续按住”模式：正常进行10秒长按判定
+        if (!waitingForLongPress) {
+          waitingForLongPress = true;
+          buttonPressStartMs = millis();
+        } else {
+          if (!captureBusy && (millis() - buttonPressStartMs >= LONG_PRESS_MS)) {
+            captureBusy = true;
 #if ENABLE_LOG2
-          Serial2.println("[BTN] Button long-pressed (>10s), start capture!");
+            Serial2.println("[BTN] Long press >10s detected, capture once and enter hold mode.");
 #endif
-          bool ok = capture_and_process(TRIGGER_BUTTON, true);
+            bool ok = capture_and_process(TRIGGER_BUTTON, true);
 #if ENABLE_LOG2
-          if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
-          else Serial2.println("[BTN] Capture failed!");
+            if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
+            else    Serial2.println("[BTN] Capture failed!");
 #endif
-          // 新增：长按超过10秒，进入“报警”状态
-          g_waterSensorStatus = 1;
-          captureBusy = false;
-          // 必须松手后再允许下一次
-          waitingForLongPress = false;
-          buttonPressStartMs = 0;
+            // 进入“持续按住”模式，并记录起始时间（供10分钟周期逻辑对齐）
+            g_waterSensorStatus = 1;
+            g_waterHoldStartMs = millis();
+
+            // 本次长按已完成，避免在未抬起时重启计时
+            waitingForLongPress = false;
+            buttonPressStartMs = 0;
+            captureBusy = false;
+          }
         }
       }
     } else { // 松开
+      // 退出“持续按住”模式，复位所有计时
+      g_waterSensorStatus = 0;
+      g_waterHoldStartMs = 0;
       waitingForLongPress = false;
       buttonPressStartMs = 0;
-      // 松手时清零“报警”状态
-      g_waterSensorStatus = 0;
     }
   }
 
   lastButtonState = reading;
 
-  // 只在未校时时每10秒提示一次
+  // 仅在未校时时每10秒提示一次
   if (!rtc_is_valid() && millis() - lastRtcPrint > 10000) {
     lastRtcPrint = millis();
 #if ENABLE_LOG2
