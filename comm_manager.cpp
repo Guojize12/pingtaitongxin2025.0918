@@ -4,6 +4,7 @@
 #include "at_commands.h"
 #include "platform_packet.h"
 #include <Arduino.h>
+#include <ctype.h> 
 
 // ================== 通信状态机内部变量 ==================
 static Step step = STEP_IDLE;

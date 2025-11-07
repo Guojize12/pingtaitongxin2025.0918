@@ -71,7 +71,8 @@ static void mipSendHex(const uint8_t* data, size_t len) {
         data += n;
         len  -= n;
         // 适度让出 CPU/给模组时间处理，避免串口拥塞
-        delay(2);
+        //delay(2);
+        yield(); // <<< 非阻塞让出，替代短时 delay
     }
 }
 
