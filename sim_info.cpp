@@ -15,6 +15,27 @@
 #define SIM_LOGVAL(k, v)
 #endif
 
+// Trim copy: remove leading/trailing whitespace, write to out (always NUL-terminated)
+static void trim_copy(const char* s, char* out, size_t outlen) {
+    if (!s || outlen == 0) return;
+    const char* a = s;
+    // skip leading
+    while (*a && isspace((unsigned char)*a)) ++a;
+    // find end
+    const char* b = a;
+    while (*b) ++b;
+    // back off trailing spaces
+    if (b > a) {
+        --b;
+        while (b > a && isspace((unsigned char)*b)) --b;
+        ++b; // one past last non-space
+    }
+    size_t len = (size_t)(b - a);
+    if (len >= outlen) len = outlen - 1;
+    if (len > 0) memcpy(out, a, len);
+    out[len] = '\0';
+}
+
 // Read lines from Serial into out buffer (NUL-terminated).
 // Blocking with timeout (ms). Returns true on a received non-empty line.
 static bool readLineWithTimeout(char* out, size_t outlen, uint32_t timeout_ms) {
@@ -60,14 +81,10 @@ static bool waitForATResponse(const char* at, char* out, size_t outlen, const ch
         if (readLineWithTimeout(line, sizeof(line), timeout - (millis() - start))) {
             // trim leading spaces
             char tmp[LINE_BUF_MAX];
-            trim_copy(line, tmp, sizeof(tmp)); // reuse trim_copy from comm_manager? it's static there; redefine small trim here
-            // Since we can't call comm_manager's static function, implement inline trim:
-            // (but to avoid duplication, do a compact trim here)
+            trim_copy(line, tmp, sizeof(tmp));
+            // rtrim already handled by trim_copy
             char* s = tmp;
-            while (*s && isspace((unsigned char)*s)) ++s;
-            // rtrim
             size_t l = strlen(s);
-            while (l > 0 && isspace((unsigned char)s[l - 1])) { s[--l] = '\0'; }
             if (l == 0) continue;
             SIM_LOG2("[SIM] AT Resp: ", s);
             if (prefix && strncmp(s, prefix, strlen(prefix)) != 0) continue;
