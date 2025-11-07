@@ -179,6 +179,21 @@ static constexpr uint32_t NVS_MIN_SAVE_INTERVAL_MS = 60UL * 1000UL;
 #define BUTTON_PIN 12
 #define TRIGGER_BUTTON 1
 
+// ===== 新增（可选）外设电源/复位控制脚位（默认-1表示未接） =====
+// 如果你的硬件把蜂窝模组电源或 PWRKEY 引到了 MCU，请在此处设置对应GPIO。
+// 软件可以对这些GPIO做定时断电/上电来实现“完整断电”的效果。
+// 示例：#define MODEM_PWR_GPIO 33
+#ifndef MODEM_PWR_GPIO
+#define MODEM_PWR_GPIO -1
+#endif
+#ifndef MODEM_RESET_GPIO
+#define MODEM_RESET_GPIO -1
+#endif
+#ifndef PERIPH_POWER_EN_GPIO
+#define PERIPH_POWER_EN_GPIO -1
+#endif
+// ===== END 新增 =====
+
 typedef struct {
     bool saveEnabled;
     bool sendEnabled;
