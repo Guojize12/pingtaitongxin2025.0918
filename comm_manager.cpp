@@ -16,8 +16,38 @@ static bool tcpConnected = false;
 // === 定时请求时间同步相关变量 ===
 static uint32_t lastTimeSyncReqMs = 0;
 
+// ================== 非阻塞重试调度变量 ==================
+enum RetryAction : uint8_t {
+    RA_NONE = 0,
+    RA_START_AT_PING = 1,
+    RA_QUERY_CEREG = 2,
+    RA_OPEN_TCP = 3
+};
+static volatile RetryAction pendingRetryAction = RA_NONE;
+static uint32_t nextRetryAllowedMs = 0;
+
 // ================== 工具函数 ==================
-static String trimLine(const char* s) { String t = s; t.trim(); return t; }
+// Trim copy: remove leading/trailing whitespace, write to out (always NUL-terminated)
+static void trim_copy(const char* s, char* out, size_t outlen) {
+    if (!s || outlen == 0) return;
+    const char* a = s;
+    // skip leading
+    while (*a && isspace((unsigned char)*a)) ++a;
+    // find end
+    const char* b = a;
+    while (*b) ++b;
+    // back off trailing spaces
+    if (b > a) {
+        --b;
+        while (b > a && isspace((unsigned char)*b)) --b;
+        ++b; // one past last non-space
+    }
+    size_t len = (size_t)(b - a);
+    if (len >= outlen) len = outlen - 1;
+    if (len > 0) memcpy(out, a, len);
+    out[len] = '\0';
+}
+
 static bool lineHas(const char* line, const char* token) { return (strstr(line, token) != nullptr); }
 
 void scheduleStatePoll() { nextStatePollMs = millis() + STATE_POLL_MS; }
@@ -34,6 +64,13 @@ void comm_gotoStep(Step s) {
     actionStartMs = millis();
 }
 
+// schedule a retry action without blocking the main loop
+static void scheduleRetry(RetryAction a) {
+    pendingRetryAction = a;
+    nextRetryAllowedMs = millis() + backoffMs;
+    // keep actionStartMs for step timeouts semantics
+}
+
 // ================== 各状态处理函数 ==================
 static void handleStepIdle() {
     comm_gotoStep(STEP_WAIT_READY);
@@ -41,23 +78,23 @@ static void handleStepIdle() {
     startATPing();
 }
 
-static void handleStepWaitReady(const String& line) {
-    if (lineHas(line.c_str(), "+MATREADY")) {
+static void handleStepWaitReady(const char* line) {
+    if (lineHas(line, "+MATREADY")) {
         startATPing();
     }
 }
 
-static void handleStepAtPing(const String& line) {
-    if (lineHas(line.c_str(), "OK")) {
+static void handleStepAtPing(const char* line) {
+    if (lineHas(line, "OK")) {
         comm_resetBackoff();
         queryCEREG();
     }
 }
 
-static void handleStepCereg(const String& line) {
-    if (lineHas(line.c_str(), "+CEREG")) {
+static void handleStepCereg(const char* line) {
+    if (lineHas(line, "+CEREG")) {
         int stat = -1;
-        const char* p = strchr(line.c_str(), ',');
+        const char* p = strchr(line, ',');
         if (p) { stat = atoi(++p); }
         if (stat == 1 || stat == 5) {
             setEncoding();
@@ -65,28 +102,30 @@ static void handleStepCereg(const String& line) {
     }
 }
 
-static void handleStepEncoding(const String& line) {
-    if (lineHas(line.c_str(), "OK") || lineHas(line.c_str(), "ERROR")) {
+static void handleStepEncoding(const char* line) {
+    if (lineHas(line, "OK") || lineHas(line, "ERROR")) {
         closeCh0();
     }
 }
 
-static void handleStepMipclose(const String& line) {
-    if (lineHas(line.c_str(), "OK") || lineHas(line.c_str(), "+MIPCLOSE")) {
+static void handleStepMipclose(const char* line) {
+    if (lineHas(line, "OK") || lineHas(line, "+MIPCLOSE")) {
         openTCP();
     }
 }
 
-static void handleStepMipopen(const String& line) {
-    if (lineHas(line.c_str(), "+MIPOPEN")) {
+static void handleStepMipopen(const char* line) {
+    if (lineHas(line, "+MIPOPEN")) {
         int ch = -1, code = -1;
-        const char* p = strstr(line.c_str(), "+MIPOPEN");
+        const char* p = strstr(line, "+MIPOPEN");
         if (p) {
             p = strchr(p, ':'); if (p) ++p;
-            while (*p == ' ') ++p;
-            ch = atoi(p);
-            p = strchr(p, ',');
-            if (p) { code = atoi(++p); }
+            if (p) {
+                while (*p == ' ') ++p;
+                ch = atoi(p);
+                p = strchr(p, ',');
+                if (p) { code = atoi(++p); }
+            }
         }
 
         if (code == 0) {
@@ -101,39 +140,36 @@ static void handleStepMipopen(const String& line) {
             log2("TCP open failed");
             tcpConnected = false;
             growBackoff();
-            delay(backoffMs);
-            openTCP();
+            // non-blocking: schedule a retry to open TCP later
+            scheduleRetry(RA_OPEN_TCP);
         }
-    } else if (lineHas(line.c_str(), "ERROR")) {
+    } else if (lineHas(line, "ERROR")) {
         log2("TCP open ERROR");
         tcpConnected = false;
         growBackoff();
-        delay(backoffMs);
-        openTCP();
+        scheduleRetry(RA_OPEN_TCP);
     }
 }
 
-static void handleStepMonitor(const String& line) {
-    if (lineHas(line.c_str(), "+MIPSTATE")) {
-        if (strstr(line.c_str(), "CONNECTED")) {
+static void handleStepMonitor(const char* line) {
+    if (lineHas(line, "+MIPSTATE")) {
+        if (strstr(line, "CONNECTED")) {
             tcpConnected = true;
         } else {
             log2("TCP disconnected");
             tcpConnected = false;
             growBackoff();
-            delay(backoffMs);
-            openTCP();
+            scheduleRetry(RA_OPEN_TCP);
         }
     }
 }
 
-static void handleDisconnEvent(const String& line) {
-    if (lineHas(line.c_str(), "+MIPURC") && lineHas(line.c_str(), "\"disconn\"")) {
+static void handleDisconnEvent(const char* line) {
+    if (lineHas(line, "+MIPURC") && lineHas(line, "\"disconn\"")) {
         tcpConnected = false;
         log2("TCP disconnected");
         growBackoff();
-        delay(backoffMs);
-        openTCP();
+        scheduleRetry(RA_OPEN_TCP);
     }
 }
 
@@ -155,8 +191,9 @@ static void sendTimeSyncIfNeeded(uint32_t now) {
 
 // 行分发（注册到 uart_utils，主要用于AT命令应答和事件）
 static void handleLine(const char* rawLine) {
-    String line = trimLine(rawLine);
-    if (line.length() == 0) return;
+    char line[LINE_BUF_MAX];
+    trim_copy(rawLine, line, sizeof(line));
+    if (line[0] == '\0') return;
 
     // 断开事件
     handleDisconnEvent(line);
@@ -174,8 +211,21 @@ static void handleLine(const char* rawLine) {
 }
 
 // 主循环：仅负责通信维持（AT/TCP/心跳/状态轮询/时间同步）
+// 现在实现非阻塞的 backoff/retry：把原来 delay(backoffMs); action(); 替换为 scheduleRetry(...)
 void comm_drive() {
     uint32_t now = millis();
+
+    // 执行到期的重试动作（非阻塞）
+    if (pendingRetryAction != RA_NONE && now >= nextRetryAllowedMs) {
+        RetryAction a = pendingRetryAction;
+        pendingRetryAction = RA_NONE;
+        switch (a) {
+            case RA_START_AT_PING: startATPing(); break;
+            case RA_QUERY_CEREG:   queryCEREG(); break;
+            case RA_OPEN_TCP:      openTCP(); break;
+            default: break;
+        }
+    }
 
     switch (step) {
         case STEP_IDLE:
@@ -185,16 +235,14 @@ void comm_drive() {
         case STEP_AT_PING:
             if (now - actionStartMs > AT_TIMEOUT_MS) {
                 growBackoff();
-                delay(backoffMs);
-                startATPing();
+                scheduleRetry(RA_START_AT_PING);
             }
             break;
 
         case STEP_CEREG:
             if (now - actionStartMs > REG_TIMEOUT_MS) {
                 growBackoff();
-                delay(backoffMs);
-                queryCEREG();
+                scheduleRetry(RA_QUERY_CEREG);
             }
             break;
 
@@ -214,8 +262,7 @@ void comm_drive() {
             if (now - actionStartMs > OPEN_TIMEOUT_MS) {
                 tcpConnected = false;
                 growBackoff();
-                delay(backoffMs);
-                openTCP();
+                scheduleRetry(RA_OPEN_TCP);
             }
             break;
 

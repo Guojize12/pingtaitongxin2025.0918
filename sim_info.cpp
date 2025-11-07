@@ -15,60 +15,114 @@
 #define SIM_LOGVAL(k, v)
 #endif
 
-static bool waitForATResponse(const char* at, char* out, size_t outlen, const char* prefix, uint32_t timeout = 2000) {
-    out[0] = 0;
+// Read lines from Serial into out buffer (NUL-terminated).
+// Blocking with timeout (ms). Returns true on a received non-empty line.
+static bool readLineWithTimeout(char* out, size_t outlen, uint32_t timeout_ms) {
+    if (!out || outlen == 0) return false;
+    size_t idx = 0;
+    uint32_t start = millis();
+    while (millis() - start < timeout_ms) {
+        while (Serial.available()) {
+            int c = Serial.read();
+            if (c < 0) continue;
+            if (c == '\r') continue;
+            if (c == '\n') {
+                // finish line
+                while (idx > 0 && isspace((unsigned char)out[idx - 1])) --idx;
+                out[idx] = '\0';
+                // skip empty lines
+                if (idx == 0) {
+                    idx = 0;
+                    continue;
+                }
+                return true;
+            }
+            if (idx < outlen - 1) {
+                out[idx++] = (char)c;
+            } else {
+                // overflow, reset line
+                idx = 0;
+            }
+        }
+        delay(10);
+    }
+    return false;
+}
+
+static bool waitForATResponse(const char* at, char* out, size_t outlen, const char* prefix, uint32_t timeout) {
+    if (!out || outlen == 0) return false;
+    out[0] = '\0';
     SIM_LOG2("[SIM] Send AT: ", at);
     sendCmd(at);
     uint32_t start = millis();
+    char line[LINE_BUF_MAX];
     while (millis() - start < timeout) {
-        while (Serial.available()) {
-            String line = Serial.readStringUntil('\n');
-            line.trim();
-            if (line.length() == 0) continue;
-            SIM_LOG2("[SIM] AT Resp: ", line.c_str());
-            if (prefix && !line.startsWith(prefix)) continue;
-            strncpy(out, line.c_str(), outlen - 1);
-            out[outlen - 1] = 0;
+        if (readLineWithTimeout(line, sizeof(line), timeout - (millis() - start))) {
+            // trim leading spaces
+            char tmp[LINE_BUF_MAX];
+            trim_copy(line, tmp, sizeof(tmp)); // reuse trim_copy from comm_manager? it's static there; redefine small trim here
+            // Since we can't call comm_manager's static function, implement inline trim:
+            // (but to avoid duplication, do a compact trim here)
+            char* s = tmp;
+            while (*s && isspace((unsigned char)*s)) ++s;
+            // rtrim
+            size_t l = strlen(s);
+            while (l > 0 && isspace((unsigned char)s[l - 1])) { s[--l] = '\0'; }
+            if (l == 0) continue;
+            SIM_LOG2("[SIM] AT Resp: ", s);
+            if (prefix && strncmp(s, prefix, strlen(prefix)) != 0) continue;
+            strncpy(out, s, outlen - 1);
+            out[outlen - 1] = '\0';
             return true;
         }
-        delay(10);
+        // no line yet
     }
     SIM_LOG("[SIM] AT timeout");
     return false;
 }
 
-static bool collectIMSI(char* out, size_t outlen, uint32_t timeout = 2000) {
-    out[0] = 0;
+// collect IMSI: send AT+CIMI and look for a numeric line of length 10..16
+static bool collectIMSI(char* out, size_t outlen, uint32_t timeout) {
+    if (!out || outlen == 0) return false;
+    out[0] = '\0';
     SIM_LOG2("[SIM] Send AT: ", "AT+CIMI");
     sendCmd("AT+CIMI");
     uint32_t start = millis();
-    bool found = false;
+    char line[LINE_BUF_MAX];
     while (millis() - start < timeout) {
-        while (Serial.available()) {
-            String line = Serial.readStringUntil('\n');
-            line.trim();
-            if (line.length() == 0) continue;
-            SIM_LOG2("[SIM] AT Resp: ", line.c_str());
-            if (line == "OK" || !isdigit(line[0])) continue;
-            if (line.length() >= 10 && line.length() <= 16) {
-                strncpy(out, line.c_str(), outlen - 1);
-                out[outlen - 1] = 0;
-                found = true;
-                break;
+        if (readLineWithTimeout(line, sizeof(line), timeout - (millis() - start))) {
+            // trim
+            char tmp[LINE_BUF_MAX];
+            size_t i = 0;
+            // trim leading
+            const char* p = line;
+            while (*p && isspace((unsigned char)*p)) ++p;
+            // copy and rtrim
+            while (*p && i < sizeof(tmp) - 1) tmp[i++] = *p++;
+            while (i > 0 && isspace((unsigned char)tmp[i - 1])) --i;
+            tmp[i] = '\0';
+            if (i == 0) continue;
+            SIM_LOG2("[SIM] AT Resp: ", tmp);
+            if (strcmp(tmp, "OK") == 0) continue;
+            // check if starts with digit
+            if (!isdigit((unsigned char)tmp[0])) continue;
+            if (i >= 10 && i <= 16) {
+                strncpy(out, tmp, outlen - 1);
+                out[outlen - 1] = '\0';
+                return true;
             }
         }
-        if (found) break;
         delay(10);
     }
-    if (!found) SIM_LOG("[SIM] IMSI not found");
-    return found;
+    SIM_LOG("[SIM] IMSI not found");
+    return false;
 }
 
 bool siminfo_query(SimInfo* sim) {
     memset(sim, 0, sizeof(SimInfo));
 
     char buf[64];
-    if (waitForATResponse("AT+MCCID", buf, sizeof(buf), "+MCCID:")) {
+    if (waitForATResponse("AT+MCCID", buf, sizeof(buf), "+MCCID:", 2000)) {
         char* p = strchr(buf, ':');
         if (p) {
             ++p;
@@ -84,7 +138,7 @@ bool siminfo_query(SimInfo* sim) {
         SIM_LOG("[SIM] ICCID read fail");
     }
 
-    if (collectIMSI(buf, sizeof(buf))) {
+    if (collectIMSI(buf, sizeof(buf), 2000)) {
         strncpy(sim->imsi, buf, 15);
         sim->imsi[15] = 0;
         sim->imsi_len = strlen(sim->imsi);
@@ -93,7 +147,7 @@ bool siminfo_query(SimInfo* sim) {
         SIM_LOG("[SIM] IMSI read fail");
     }
 
-    if (waitForATResponse("AT+CSQ", buf, sizeof(buf), "+CSQ:")) {
+    if (waitForATResponse("AT+CSQ", buf, sizeof(buf), "+CSQ:", 2000)) {
         int rssi = 0;
         char* p = strchr(buf, ':');
         if (p) {
