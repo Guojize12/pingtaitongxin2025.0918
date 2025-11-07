@@ -115,9 +115,9 @@ extern volatile int g_monitorEventUploadFlag;
 #define SD_MIN_FREE_MB                 5
 
 // 上电后丢帧，促使AWB/AE收敛
-#define DISCARD_FRAMES_ON_START        3
+#define DISCARD_FRAMES_ON_START        5
 // 每次拍照前在补光开启条件下丢弃的帧数（强烈建议>=3）
-#define DISCARD_FRAMES_EACH_SHOT       5
+#define DISCARD_FRAMES_EACH_SHOT       8
 
 #define ENABLE_AUTO_REINIT             1
 #define ENABLE_STATS_LOG               1
