@@ -10,13 +10,7 @@ static uint32_t s_photo_counter = 0;
 
 void init_sd() {
     sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    // 增加少量重试，允许上电瞬态稳定
-    bool ok = false;
-    for (int i = 0; i < 3; ++i) {
-        if (SD.begin(SD_CS, sdSPI)) { ok = true; break; }
-        delay(150);
-    }
-    (void)ok; // 保持行为：调用方仍会检查 SD.cardType()
+    if (!SD.begin(SD_CS, sdSPI)) {};
 }
 
 // 生成文件名：优先用RTC时间，其次用millis和本地计数

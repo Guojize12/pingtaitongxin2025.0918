@@ -75,16 +75,6 @@ static bool try_camera_init_once(framesize_t size, int xclk_hz, int jpeg_q) {
 
 bool init_camera_multi() {
     camera_ok = false;
-
-    // Ensure PWDN pin is configured and drive a known sequence to avoid uncertain power states
-    if (PWDN_GPIO >= 0) {
-        pinMode(PWDN_GPIO, OUTPUT);
-        // Start with LOW to ensure power-on enabled (some modules active LOW)
-        digitalWrite(PWDN_GPIO, LOW);
-        delay(50);
-    }
-
-    // Existing soft power toggle: try a short sequence to wake module
     if (PWDN_GPIO >= 0) {
         pinMode(PWDN_GPIO, OUTPUT);
         digitalWrite(PWDN_GPIO, HIGH);
@@ -94,8 +84,6 @@ bool init_camera_multi() {
     } else {
         delay(120);
     }
-
-    // Try preferred configurations first
     for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
         if (try_camera_init_once(FRAMESIZE_VGA, 10000000, JPEG_QUALITY_FALLBACK)) {
             camera_ok = true;
@@ -104,29 +92,6 @@ bool init_camera_multi() {
         }
         delay(150);
     }
-
-    // If initial attempts fail, apply a more aggressive PWDN power-cycle retry sequence
-    if (PWDN_GPIO >= 0) {
-        for (int cycle = 0; cycle < 3 && !camera_ok; ++cycle) {
-            // Perform a longer toggle sequence to fully reset module internal state
-            digitalWrite(PWDN_GPIO, HIGH);  // try alternate polarity/time
-            delay(200);
-            digitalWrite(PWDN_GPIO, LOW);
-            delay(200);
-
-            // Attempt initialization again
-            for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
-                if (try_camera_init_once(FRAMESIZE_VGA, 10000000, JPEG_QUALITY_FALLBACK)) {
-                    camera_ok = true;
-                    discard_frames(DISCARD_FRAMES_ON_START);
-                    return true;
-                }
-                delay(150);
-            }
-        }
-    }
-
-    // Fallback: try other configs as before
     esp_camera_deinit(); delay(80);
     for (int i = 0; i < INIT_RETRY_PER_CONFIG; ++i) {
         if (try_camera_init_once(FRAME_SIZE_PREF, 10000000, JPEG_QUALITY_PREF)) {

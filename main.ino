@@ -48,10 +48,6 @@ void setup() {
 #endif
 
   Serial.println("==== System Boot ====");
-
-  // 给电源轨和外设一个短暂的稳定时间，能显著减少上电瞬态导致的问题
-  delay(200);
-
   Serial.println("1. Initializing Camera...");
   bool camera_ok_local = init_camera_multi();
   camera_ok = camera_ok_local;
@@ -91,21 +87,14 @@ void setup() {
   rtc_init();
   Serial.println("RTC init finish (valid after time sync)");
 
-  // NOTE: 为避免上电瞬态和瞬时大电流导致设备偶发不能启动，
-  // 默认禁用“上电自检拍照”。如果你需要启用可以定义 PERFORM_INITIAL_TEST_PHOTO。
-#ifdef PERFORM_INITIAL_TEST_PHOTO
+  // 可选：上电自检只保存一张
   Serial.println("5. Taking initial test photo (save only)...");
   bool prevSend = g_cfg.sendEnabled;
   bool prevAsync = g_cfg.asyncSDWrite;
   g_cfg.sendEnabled = false;
-  // Optionally give some extra time for power to fully stabilize before test capture
-  delay(500);
   (void)capture_and_process(TRIGGER_BUTTON, false);
   g_cfg.sendEnabled = prevSend;
   g_cfg.asyncSDWrite = prevAsync;
-#else
-  Serial.println("5. Skipping initial test photo (disabled to avoid startup current spikes).");
-#endif
 
   Serial.println("All hardware OK, ready to start platform connection...");
 
