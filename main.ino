@@ -337,11 +337,6 @@ void loop()
   readDTU();
   driveStateMachine();
 
-  // 如果摄像头处于不可用状态，周期性尝试按退避策略重建
-  if (!camera_ok) {
-    attempt_camera_reinit_with_backoff();
-  }  
-
   // If init not complete, avoid heavy tasks in loop (no periodic captures, etc.)
   if (!g_init_complete) {
     // small sleep to yield
