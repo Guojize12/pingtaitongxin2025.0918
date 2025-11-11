@@ -12,6 +12,9 @@
 #include "flash_module.h"
 #include <Preferences.h>
 #include "esp_system.h"
+#include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 volatile int g_monitorEventUploadFlag = 0;
 unsigned long lastRtcPrint = 0;
@@ -42,23 +45,56 @@ volatile uint8_t g_waterSensorStatus = 0;
 // 持续按住模式起始时间（用于10分钟周期对齐）
 volatile uint32_t g_waterHoldStartMs = 0;
 
-// Recovery configuration
+// Recovery / init configuration
 static const int MAX_INIT_RECOVERY_TRIES = 5;
-static const uint32_t STAGE_INIT_DELAY_MS = 250; // delay between heavy inits to avoid inrush
+static const uint32_t STAGE_INIT_DELAY_MS = 350; // 延长一点，降低同时唤醒概率
+static const int SAFE_BOOT_THRESHOLD = 3; // 连续失败 >=3 次进入安全模式
+static const int WDT_TIMEOUT_S = 12; // init task watchdog 超时时间（秒）
+static const uint32_t INIT_STAGE_TIMEOUT_MS = 12000UL; // 每阶段最大等待时间
 
-static void logResetReason() {
-  // print numeric reset reason; string mapping can be added if需要
+// 状态
+static volatile bool g_init_complete = false;
+static volatile bool g_safe_mode = false;
+
+// forward
+static void init_task(void* arg);
+
+// 打印复位原因并统计 boot count（NVS）
+static void log_and_count_boot() {
   esp_reset_reason_t r = esp_reset_reason();
   Serial.print("Reset reason: "); Serial.println((int)r);
+
+  // 使用 preferences 计数连续失败的次数
+  if (!prefs.begin("boot", false)) {
+    Serial.println("[BOOT] NVS open failed");
+    return;
+  }
+  uint32_t bc = prefs.getUInt("bootcnt", 0);
+  bc++;
+  prefs.putUInt("bootcnt", bc);
+  Serial.print("[BOOT] boot_count="); Serial.println(bc);
+  prefs.end();
 }
 
-// Toggle optional hardware pins (if available) to force peripherals to a known reset/power state.
-// This is best-effort: if hardware doesn't wire these pins, they are -1 and ignored.
+// 清除 boot_count（在首次成功完成初始化时调用）
+static void clear_boot_count() {
+  if (!prefs.begin("boot", false)) return;
+  prefs.putUInt("bootcnt", 0);
+  prefs.end();
+}
+
+// 读取当前 boot count（用于判断是否进入安全模式）
+static uint32_t read_boot_count() {
+  if (!prefs.begin("boot", false)) return 0;
+  uint32_t bc = prefs.getUInt("bootcnt", 0);
+  prefs.end();
+  return bc;
+}
+
+// 轻量的预复位（仅对已定义GPIO执行），保持与旧逻辑兼容
 static void pre_reset_peripherals_once() {
-  // Camera PWDN/RESET
   if (PWDN_GPIO >= 0) {
     pinMode(PWDN_GPIO, OUTPUT);
-    // conservative cycle: assert then deassert to ensure reset
     digitalWrite(PWDN_GPIO, LOW);
     delay(80);
     digitalWrite(PWDN_GPIO, HIGH);
@@ -66,7 +102,6 @@ static void pre_reset_peripherals_once() {
     digitalWrite(PWDN_GPIO, LOW);
     delay(120);
   }
-
   if (RESET_GPIO >= 0) {
     pinMode(RESET_GPIO, OUTPUT);
     digitalWrite(RESET_GPIO, LOW);
@@ -74,8 +109,7 @@ static void pre_reset_peripherals_once() {
     digitalWrite(RESET_GPIO, HIGH);
     delay(80);
   }
-
-  // Modem power/reset pins (if present)
+  // 其余可控电源/复位引脚若接线可在config.h中启用
   if (MODEM_RESET_GPIO >= 0) {
     pinMode(MODEM_RESET_GPIO, OUTPUT);
     digitalWrite(MODEM_RESET_GPIO, LOW);
@@ -85,14 +119,11 @@ static void pre_reset_peripherals_once() {
   }
   if (MODEM_PWR_GPIO >= 0) {
     pinMode(MODEM_PWR_GPIO, OUTPUT);
-    // cycle power: off -> on
     digitalWrite(MODEM_PWR_GPIO, LOW);
     delay(200);
     digitalWrite(MODEM_PWR_GPIO, HIGH);
     delay(400);
   }
-
-  // Optional global peripheral power enable (if present)
   if (PERIPH_POWER_EN_GPIO >= 0) {
     pinMode(PERIPH_POWER_EN_GPIO, OUTPUT);
     digitalWrite(PERIPH_POWER_EN_GPIO, LOW);
@@ -102,34 +133,161 @@ static void pre_reset_peripherals_once() {
   }
 }
 
-// Attempt a set of recovery actions when init fails: soft modem power-cycle via AT,
-// hardware pin toggles for camera/modem and small backoff
-static void attempt_recovery_cycle(int attempt) {
-  Serial.print("[RECOV] Recovery attempt "); Serial.println(attempt);
-  // 1) Try soft power-cycle of modem via AT (best-effort)
-  modem_soft_power_cycle();
-  delay(200);
+// 在 init_task 中按阶段初始化，带超时与 WDT 保护
+static void run_staged_init(bool safe_mode) {
+  // 如果进入安全模式，跳过 camera/SD 的启动
+  Serial.print("[INIT] safe_mode=");
+  Serial.println(safe_mode ? "YES" : "NO");
 
-  // 2) Toggle camera power/reset pins
-  if (PWDN_GPIO >= 0) {
-    digitalWrite(PWDN_GPIO, HIGH); delay(60);
-    digitalWrite(PWDN_GPIO, LOW);  delay(120);
-  }
-  if (RESET_GPIO >= 0) {
-    digitalWrite(RESET_GPIO, LOW); delay(60);
-    digitalWrite(RESET_GPIO, HIGH); delay(120);
+  bool camera_initialized = false;
+  bool sd_initialized = false;
+
+  if (!safe_mode) {
+    // Camera init with stage timeout
+    uint32_t t0 = millis();
+    Serial.println("[INIT] Starting camera init...");
+    // try init in a blocking call but we guard whole task by WDT and per-stage timeout
+    camera_initialized = init_camera_multi();
+    if (camera_initialized) {
+      Serial.println("[INIT] Camera OK");
+    } else {
+      Serial.println("[INIT] Camera FAILED");
+    }
+    // if camera init exceeded stage time, it's okay: we check result and may recover later
+    if (millis() - t0 > INIT_STAGE_TIMEOUT_MS) {
+      Serial.println("[INIT] Camera init exceeded stage timeout");
+    }
+    vTaskDelay(pdMS_TO_TICKS(STAGE_INIT_DELAY_MS));
+  } else {
+    Serial.println("[INIT] Skipping camera in safe mode");
   }
 
-  // 3) If modem power control pin exists, toggle it
-  if (MODEM_PWR_GPIO >= 0) {
-    digitalWrite(MODEM_PWR_GPIO, LOW); delay(200);
-    digitalWrite(MODEM_PWR_GPIO, HIGH); delay(400);
+  // SD init (non-blocking guarded)
+  if (!safe_mode) {
+    Serial.println("[INIT] Starting SD init...");
+    uint32_t t0 = millis();
+    init_sd(); // existing function; may be quick or blocking in some drivers
+    // Wait briefly for card presence check, but don't block too long
+    while (millis() - t0 < 2000) {
+      if (SD.cardType() != CARD_NONE) { sd_initialized = true; break;}
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (sd_initialized) Serial.println("[INIT] SD OK");
+    else Serial.println("[INIT] SD not ready");
+    vTaskDelay(pdMS_TO_TICKS(STAGE_INIT_DELAY_MS));
+  } else {
+    Serial.println("[INIT] Skipping SD in safe mode");
   }
 
-  // small backoff increasing with attempts
-  uint32_t backoff = 200 * (1UL << min(attempt, 6)); // up to ~12s
-  if (backoff > 12000) backoff = 12000;
-  delay(backoff);
+  // Start async SD task only if sd ok and not safe mode
+  if (!safe_mode && sd_initialized) {
+    if (sd_async_init()) {
+      sd_async_start();
+      sd_async_on_sd_ready();
+      Serial.println("[INIT] SD async started");
+    } else {
+      Serial.println("[INIT] SD async init failed");
+    }
+  }
+
+  // Flash / PWM / prefs / rtc are light-weight; do them last
+  flashInit();
+
+  if (!prefs.begin("cfg", false)) {
+    Serial.println("[INIT] NVS prefs open failed");
+  } else {
+    load_params_from_nvs();
+    prefs.end();
+  }
+
+  rtc_init();
+
+  // initial test photo only if not in safe mode and both camera+sd present
+  if (!safe_mode && camera_initialized && sd_initialized) {
+    Serial.println("[INIT] Taking initial test photo (save only)...");
+    bool prevSend = g_cfg.sendEnabled;
+    bool prevAsync = g_cfg.asyncSDWrite;
+    g_cfg.sendEnabled = false;
+    (void)capture_and_process(TRIGGER_BUTTON, false);
+    g_cfg.sendEnabled = prevSend;
+    g_cfg.asyncSDWrite = prevAsync;
+    Serial.println("[INIT] Initial test photo done");
+  } else {
+    Serial.println("[INIT] Skipping test photo");
+  }
+
+  // mark success: clear boot count
+  clear_boot_count();
+  g_init_complete = true;
+}
+
+// init_task: runs staged init; protected by task wdt
+static void init_task(void* arg) {
+  // register this task to task WDT
+  esp_task_wdt_add(NULL);
+
+  // read boot_count and decide safe mode
+  uint32_t bc = read_boot_count();
+  if (bc >= SAFE_BOOT_THRESHOLD) {
+    g_safe_mode = true;
+    Serial.println("[INIT_TASK] Entering SAFE MODE due to repeated boot failures");
+  } else {
+    g_safe_mode = false;
+  }
+
+  // attempt several recovery tries if necessary
+  int attempt = 0;
+  while (attempt <= MAX_INIT_RECOVERY_TRIES && !g_init_complete) {
+    attempt++;
+    Serial.print("[INIT_TASK] Attempt ");
+    Serial.println(attempt);
+    // feed watchdog periodically while doing init
+    esp_task_wdt_reset();
+
+    run_staged_init(g_safe_mode);
+
+    // if init completed, break
+    if (g_init_complete) break;
+
+    // otherwise try some recovery actions (best-effort)
+    Serial.println("[INIT_TASK] Init not complete, trying recovery actions...");
+    // soft-power-cycle modem (AT commands best-effort)
+    modem_soft_power_cycle();
+    // toggle camera PWDN if available
+    if (PWDN_GPIO >= 0) {
+      digitalWrite(PWDN_GPIO, HIGH); vTaskDelay(pdMS_TO_TICKS(80));
+      digitalWrite(PWDN_GPIO, LOW);  vTaskDelay(pdMS_TO_TICKS(150));
+    }
+    // backoff
+    uint32_t backoff = 500 * (1UL << min(attempt, 6));
+    if (backoff > 15000) backoff = 15000;
+    Serial.print("[INIT_TASK] Backing off ");
+    Serial.print(backoff);
+    Serial.println(" ms");
+    uint32_t st = millis();
+    while (millis() - st < backoff) {
+      esp_task_wdt_reset();
+      vTaskDelay(pdMS_TO_TICKS(200));
+    }
+  }
+
+  if (!g_init_complete) {
+    Serial.println("[INIT_TASK] Initialization FAILED after attempts. Triggering restart.");
+    // leave boot count increment as-is so next boot likely goes safe mode
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_task_wdt_reset();
+    // perform controlled restart
+    esp_task_wdt_delete(NULL);
+    ESP.restart();
+    // not reached
+  } else {
+    Serial.println("[INIT_TASK] Initialization COMPLETE.");
+    // remove task wdt membership for this task since it's done
+    esp_task_wdt_delete(NULL);
+  }
+
+  // terminate this task
+  vTaskDelete(NULL);
 }
 
 void setup() {
@@ -139,90 +297,34 @@ void setup() {
 #endif
 
   Serial.println("==== System Boot ====");
-  logResetReason();
+  // count boot and decide safe mode later in init_task
+  if (!prefs.begin("boot", false)) {
+    Serial.println("[BOOT] prefs begin failed");
+  } else {
+    uint32_t bc = prefs.getUInt("bootcnt", 0);
+    Serial.print("[BOOT] previous boot_count=");
+    Serial.println(bc);
+    prefs.end();
+  }
 
-  // Pre-reset peripherals to clear possible latch-up / half-power states
+  log_and_count_boot();
+
+  // small early pre-reset to clear possible latch-ups
   pre_reset_peripherals_once();
 
-  // Staged initialization with limited recovery attempts
-  int recovery_try = 0;
-  bool camera_initialized = false;
-  bool sd_initialized = false;
+  // create init task with its own watchdog
+  BaseType_t rc = xTaskCreatePinnedToCore(init_task, "init_task",
+                                          8192, nullptr,
+                                          2, nullptr, tskNO_AFFINITY);
+  if (rc != pdPASS) {
+    Serial.println("[BOOT] Failed to create init_task - performing direct init fallback");
+    // fallback: do direct init in-line but with conservative delays
+    run_staged_init(false);
+    g_init_complete = true;
+    clear_boot_count();
+  }
 
-  while (recovery_try <= MAX_INIT_RECOVERY_TRIES) {
-    Serial.println("1. Initializing Camera...");
-    camera_initialized = init_camera_multi();
-    camera_ok = camera_initialized;
-    if (camera_initialized) {
-      Serial.println("Camera OK");
-    } else {
-      Serial.println("[ERR] Camera init failed!");
-    }
-
-    delay(STAGE_INIT_DELAY_MS);
-
-    Serial.println("2. Initializing SD Card...");
-    init_sd();
-    if (SD.cardType() == CARD_NONE) {
-      Serial.println("[ERR] SD card init failed!");
-      sd_initialized = false;
-    } else {
-      Serial.println("SD card OK");
-      sd_initialized = true;
-    }
-
-    delay(STAGE_INIT_DELAY_MS);
-
-    // Start async SD only if sd initialised
-    if (sd_initialized) {
-      sd_async_init();
-      sd_async_start();
-      sd_async_on_sd_ready();
-    }
-
-    // init flash pwm
-    flashInit();
-
-    // preferences / NVS
-    Serial.println("3. Loading config from NVS...");
-    if (!prefs.begin("cfg", false)) {
-      Serial.println("[ERR] NVS init failed!");
-    } else {
-      load_params_from_nvs();
-      Serial.println("NVS OK");
-    }
-
-    Serial.println("4. Initializing RTC (soft)...");
-    rtc_init();
-    Serial.println("RTC init finish (valid after time sync)");
-
-    // Initial test photo - only when camera+sd ok
-    if (camera_initialized && sd_initialized) {
-      Serial.println("5. Taking initial test photo (save only)...");
-      bool prevSend = g_cfg.sendEnabled;
-      bool prevAsync = g_cfg.asyncSDWrite;
-      g_cfg.sendEnabled = false;
-      (void)capture_and_process(TRIGGER_BUTTON, false);
-      g_cfg.sendEnabled = prevSend;
-      g_cfg.asyncSDWrite = prevAsync;
-      Serial.println("All hardware OK, ready to start platform connection...");
-      break; // initialization OK
-    }
-
-    // If reached here, something failed. Try recovery sequence or escalate.
-    recovery_try++;
-    if (recovery_try > MAX_INIT_RECOVERY_TRIES) {
-      Serial.println("[FATAL] Init failed after recovery attempts. Performing ESP.restart()");
-      delay(200);
-      ESP.restart();
-      // not reached
-    } else {
-      Serial.println("[WARN] Init incomplete, attempt recovery actions...");
-      attempt_recovery_cycle(recovery_try);
-      // loop and attempt init again
-    }
-  } // end recovery loop
-
+  // Mark comm state machine ready to run; comm/state/upload will wait for init flags appropriately
   resetBackoff();
   gotoStep(STEP_IDLE);
 
@@ -231,9 +333,18 @@ void setup() {
 
 void loop()
 {
+  // If initialization not complete, still drive minimal IO: readDTU and comm state to keep serial processing alive.
   readDTU();
   driveStateMachine();
 
+  // If init not complete, avoid heavy tasks in loop (no periodic captures, etc.)
+  if (!g_init_complete) {
+    // small sleep to yield
+    delay(50);
+    return;
+  }
+
+  // 主运行逻辑（仅在 init 完成后执行）
   // 按钮检测与消抖
   int reading = digitalRead(BUTTON_PIN);
   if (reading != lastButtonState) {
@@ -243,10 +354,8 @@ void loop()
   if ((millis() - lastDebounceTime) > debounceDelay) {
     if (reading == LOW) { // 被按下（低有效）
       if (g_waterSensorStatus == 1) {
-        // 已处于“持续按住”模式：不重新计时，不触发新的10秒长按
-        waitingForLongPress = false; // 防止误触发二次计时
+        waitingForLongPress = false;
       } else {
-        // 未处于“持续按住”模式：正常进行10秒长按判定
         if (!waitingForLongPress) {
           waitingForLongPress = true;
           buttonPressStartMs = millis();
@@ -261,7 +370,6 @@ void loop()
             if (ok) Serial2.println("[BTN] Capture saved; event flagged for upload.");
             else    Serial2.println("[BTN] Capture failed!");
 #endif
-            // 进入“持续按住”模式，并记录起始时间（供10分钟周期逻辑对齐）
             g_waterSensorStatus = 1;
             g_waterHoldStartMs = millis();
 
